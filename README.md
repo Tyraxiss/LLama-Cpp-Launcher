@@ -92,6 +92,19 @@ git branch -M main
 git push -u origin main
 ```
 
+## Prebuilt Releases
+
+GitHub Actions builds Windows installers whenever a version tag is pushed.
+
+Create and push a release tag:
+
+```powershell
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The release workflow attaches the NSIS `.exe` installer and MSI package to the GitHub Release.
+
 ## License
 
 MIT License. See [LICENSE](LICENSE).
