@@ -1,6 +1,6 @@
 {
   "productName": "LLama C++ Launcher",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "identifier": "com.llama.launcher",
   "build": {
     "beforeDevCommand": "npm run dev:web",

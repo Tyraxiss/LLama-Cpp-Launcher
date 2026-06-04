@@ -2,6 +2,14 @@
 
 All notable changes to LLama C++ Launcher are documented here.
 
+## [1.0.3] - 2026-06-03
+
+### Fixed
+
+- Fixed the preset card layout at wide window sizes so use-case names stay readable instead of collapsing into abbreviated/ellipsized labels.
+- Fixed Hugging Face GGUF file lookup so the downloader requests blob metadata and shows model file sizes instead of `size unknown`.
+- Added an LFS metadata fallback for Hugging Face file sizes, which is important because most GGUF model files are stored with Git LFS.
+
 ## [1.0.2] - 2026-06-03
 
 ### Changed
