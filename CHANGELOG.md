@@ -37,15 +37,21 @@ All notable changes to LLama C++ Launcher are documented here.
 ### Fixed
 
 - Fixed GitHub Actions dependency installation by pinning Vite to the compatible 7.x line.
+- Refreshed `package-lock.json` so `npm ci` succeeds in CI and release builds.
 - Updated CI and release workflows to use `windows-2022` instead of `windows-latest`.
 - Opted GitHub Actions into Node 24 behavior to avoid Node 20 action runtime deprecation warnings.
 - Changed the release workflow to publish the NSIS Windows installer only.
+
+### Release
+
+- Bumped the app from `1.0.0` to `1.0.1`.
+- Published the first successful prebuilt Windows installer release.
 
 ## [1.0.0] - 2026-05-23
 
 ### Added
 
-- Initial public release of LLama C++ Launcher.
+- Initial tagged version of LLama C++ Launcher.
 - Launch and manage local `llama.cpp` `llama-server` processes.
 - Persist server executable, model paths, scan folders, model settings, and theme choice.
 - Scan model folders recursively for `.gguf` files.
@@ -56,3 +62,7 @@ All notable changes to LLama C++ Launcher are documented here.
 - Dark and light themes.
 - Built-in searchable help content.
 - Prebuilt Windows NSIS installer release workflow.
+
+### Notes
+
+- The `v1.0.0` tag set up the initial release workflow, but the first successful published GitHub Release with a prebuilt installer was `v1.0.1`.
