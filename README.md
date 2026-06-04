@@ -103,7 +103,9 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-The release workflow attaches the NSIS `.exe` installer and MSI package to the GitHub Release.
+The release workflow attaches the NSIS `.exe` installer to the GitHub Release.
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## License
 
