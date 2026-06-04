@@ -136,6 +136,12 @@ struct HfRepoInfo {
 struct HfSibling {
     rfilename: String,
     size: Option<u64>,
+    lfs: Option<HfLfsInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HfLfsInfo {
+    size: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -479,7 +485,7 @@ async fn list_hf_gguf_files(
 ) -> Result<Vec<HfGgufFile>, String> {
     let spec = parse_hf_model_spec(&repo)?;
     let repo = spec.repo;
-    let url = format!("https://huggingface.co/api/models/{}", repo);
+    let url = format!("https://huggingface.co/api/models/{}?blobs=true", repo);
     let client = hf_client(token.as_deref())?;
     let response = client
         .get(url)
@@ -515,7 +521,7 @@ async fn list_hf_gguf_files(
                 .unwrap_or(&file.rfilename)
                 .to_string(),
             path: file.rfilename,
-            size_bytes: file.size,
+            size_bytes: file.size.or_else(|| file.lfs.and_then(|lfs| lfs.size)),
         })
         .collect();
     if let Some(selector) = spec.selector {
