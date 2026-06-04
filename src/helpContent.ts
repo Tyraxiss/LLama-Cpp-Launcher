@@ -57,11 +57,12 @@ export const HELP_SECTIONS: HelpSection[] = [
     title: "Presets",
     summary: "Fast profiles for common model behaviors.",
     items: [
-      { term: "Programming", detail: "Low-variance settings for code, debugging, and precise edits." },
-      { term: "Creative Writing", detail: "More variation for prose without pushing too far into incoherence." },
-      { term: "Gemma and Qwen presets", detail: "Profiles tuned for the two local model families you use most." },
-      { term: "Deep Analysis", detail: "Larger context and stable sampling for long documents or reasoning tasks." },
-      { term: "Quick Code", detail: "Short-context, crisp output for quick snippets and small fixes." },
+      { term: "Code: Precise", detail: "Generic low-variance settings for debugging, refactoring, and exact edits." },
+      { term: "Writing: Story", detail: "Generic prose settings for fiction, scenes, and brainstorming." },
+      { term: "Gemma 4 presets", detail: "Uses Google's recommended Gemma 4 defaults: temperature 1.0, top-p 0.95, top-k 64, and no extra penalties." },
+      { term: "Qwen 3.6 presets", detail: "Uses Qwen's recommended settings for thinking-mode coding and thinking-mode general writing." },
+      { term: "Research: Long", detail: "Larger context and stable sampling for long documents, comparison, and reasoning tasks." },
+      { term: "Code: Quick", detail: "Short-context, crisp output for snippets and small fixes." },
     ],
   },
   {

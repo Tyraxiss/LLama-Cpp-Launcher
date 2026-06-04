@@ -1108,7 +1108,7 @@ function App() {
           <div className="card">
             <div className="card-header">
               <Zap size={14} className="icon" />
-              <h3>Quick Presets</h3>
+              <h3>Use-Case Presets</h3>
             </div>
             <div className="preset-grid">
               {Object.entries(PRESETS).map(([key, preset]) => (
