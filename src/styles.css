@@ -1597,12 +1597,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .preset-card.tone-purple { --preset-accent: #9333ea; --preset-glow: rgba(147, 51, 234, 0.18); }
 .preset-card.tone-lime { --preset-accent: #4d7c0f; --preset-glow: rgba(77, 124, 15, 0.18); }
 
-@media (min-width: 1180px) {
-  .preset-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
 /* --- Directory tags --- */
 .dir-tags {
   display: flex;
