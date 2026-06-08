@@ -36,11 +36,7 @@ pub fn parse_open_webui_version_from_pip_show(text: &str) -> Result<String, Stri
 
 fn read_open_webui_version(venv_path: &Path) -> Result<String, String> {
     let python = validate_open_webui_venv(venv_path)?;
-    let output = run_hidden_command_in(
-        &python,
-        &["-m", "pip", "show", "open-webui"],
-        venv_path,
-    )?;
+    let output = run_hidden_command_in(&python, &["-m", "pip", "show", "open-webui"], venv_path)?;
 
     if !output.status.success() {
         return Err("open-webui is not installed in this venv.".into());
@@ -112,7 +108,10 @@ pub async fn update_open_webui(
     }
 
     {
-        let mut updating = state.open_webui_updating.lock().map_err(|e| e.to_string())?;
+        let mut updating = state
+            .open_webui_updating
+            .lock()
+            .map_err(|e| e.to_string())?;
         if *updating {
             return Err("An Open WebUI update is already in progress.".into());
         }
@@ -193,7 +192,10 @@ pub async fn start_open_webui(
     config: OpenWebUiStartConfig,
 ) -> Result<String, String> {
     {
-        let updating = state.open_webui_updating.lock().map_err(|e| e.to_string())?;
+        let updating = state
+            .open_webui_updating
+            .lock()
+            .map_err(|e| e.to_string())?;
         if *updating {
             return Err("Wait for the Open WebUI update to finish before starting.".into());
         }
