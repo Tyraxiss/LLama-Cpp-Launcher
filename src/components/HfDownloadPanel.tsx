@@ -1,21 +1,20 @@
 import { useMemo, useState } from "react";
-import { Download, FileSearch, FolderOpen, KeyRound, Loader, Search, X } from "lucide-react";
-
-interface HfGgufFile {
-  path: string;
-  filename: string;
-  size_bytes: number | null;
-}
-
-interface HfDownloadProgress {
-  repo: string;
-  filename: string;
-  target_path: string;
-  downloaded_bytes: number;
-  total_bytes: number | null;
-  status: "downloading" | "complete" | "cancelled" | "error";
-  error: string | null;
-}
+import {
+  Download,
+  FileSearch,
+  FolderOpen,
+  KeyRound,
+  Loader,
+  Search,
+  Trash2,
+  X,
+} from "lucide-react";
+import type {
+  HfDownloadProgress,
+  HfDownloadQueueItem,
+  HfGgufFile,
+  HfPartialDownload,
+} from "../types";
 
 interface HfDownloadPanelProps {
   repo: string;
@@ -26,7 +25,10 @@ interface HfDownloadPanelProps {
   targetDirs: string[];
   loadingFiles: boolean;
   downloading: boolean;
+  queue: HfDownloadQueueItem[];
   progress: HfDownloadProgress | null;
+  partialDownload: HfPartialDownload | null;
+  canResume: boolean;
   formatBytes: (bytes: number) => string;
   onRepoChange: (value: string) => void;
   onTokenChange: (value: string) => void;
@@ -34,8 +36,26 @@ interface HfDownloadPanelProps {
   onTargetDirChange: (value: string) => void;
   onLookupFiles: () => void;
   onBrowseTargetDir: () => void;
-  onStartDownload: () => void;
+  onEnqueueDownload: () => void;
+  onRemoveQueued: (id: string) => void;
+  onClearFinishedQueue: () => void;
   onCancelDownload: () => void;
+  onDiscardPartial: () => void;
+}
+
+function queueStatusLabel(status: HfDownloadQueueItem["status"]): string {
+  switch (status) {
+    case "pending":
+      return "Queued";
+    case "downloading":
+      return "Downloading";
+    case "complete":
+      return "Done";
+    case "cancelled":
+      return "Paused";
+    case "error":
+      return "Error";
+  }
 }
 
 export function HfDownloadPanel({
@@ -47,7 +67,10 @@ export function HfDownloadPanel({
   targetDirs,
   loadingFiles,
   downloading,
+  queue,
   progress,
+  partialDownload,
+  canResume,
   formatBytes,
   onRepoChange,
   onTokenChange,
@@ -55,8 +78,11 @@ export function HfDownloadPanel({
   onTargetDirChange,
   onLookupFiles,
   onBrowseTargetDir,
-  onStartDownload,
+  onEnqueueDownload,
+  onRemoveQueued,
+  onClearFinishedQueue,
   onCancelDownload,
+  onDiscardPartial,
 }: HfDownloadPanelProps) {
   const [fileFilter, setFileFilter] = useState("");
   const [sortMode, setSortMode] = useState<"name" | "small" | "large">("name");
@@ -64,10 +90,17 @@ export function HfDownloadPanel({
   const visibleFiles = useMemo(() => {
     const needle = fileFilter.trim().toLowerCase();
     const filtered = needle
-      ? files.filter((file) => file.filename.toLowerCase().includes(needle) || file.path.toLowerCase().includes(needle))
+      ? files.filter(
+          (file) =>
+            file.filename.toLowerCase().includes(needle) ||
+            file.path.toLowerCase().includes(needle),
+        )
       : files;
     return [...filtered].sort((a, b) => {
-      if (sortMode === "small") return (a.size_bytes ?? Number.MAX_SAFE_INTEGER) - (b.size_bytes ?? Number.MAX_SAFE_INTEGER);
+      if (sortMode === "small")
+        return (
+          (a.size_bytes ?? Number.MAX_SAFE_INTEGER) - (b.size_bytes ?? Number.MAX_SAFE_INTEGER)
+        );
       if (sortMode === "large") return (b.size_bytes ?? 0) - (a.size_bytes ?? 0);
       return a.filename.toLowerCase().localeCompare(b.filename.toLowerCase());
     });
@@ -76,6 +109,24 @@ export function HfDownloadPanel({
     progress?.total_bytes && progress.total_bytes > 0
       ? Math.min(100, Math.round((progress.downloaded_bytes / progress.total_bytes) * 100))
       : null;
+  const partialPercent =
+    partialDownload?.total_bytes && partialDownload.total_bytes > 0
+      ? Math.min(
+          100,
+          Math.round((partialDownload.downloaded_bytes / partialDownload.total_bytes) * 100),
+        )
+      : null;
+  const queueActive = queue.some(
+    (item) => item.status === "pending" || item.status === "downloading",
+  );
+  const finishedCount = queue.filter(
+    (item) => item.status === "complete" || item.status === "error" || item.status === "cancelled",
+  ).length;
+  const primaryLabel = queueActive
+    ? "Add to Queue"
+    : canResume
+      ? "Resume Download"
+      : "Download Model";
 
   return (
     <div className="card">
@@ -83,6 +134,11 @@ export function HfDownloadPanel({
         <Download size={14} className="icon" />
         <h3>Hugging Face</h3>
         {downloading && <span className="mini-status starting">Downloading</span>}
+        {queue.filter((item) => item.status === "pending").length > 0 && !downloading && (
+          <span className="mini-status starting">
+            {queue.filter((item) => item.status === "pending").length} queued
+          </span>
+        )}
       </div>
 
       <div className="hf-stack">
@@ -93,18 +149,15 @@ export function HfDownloadPanel({
             placeholder="owner/model-GGUF:Q4_K_M"
             type="text"
             value={repo}
-            disabled={downloading}
             onChange={(e) => onRepoChange(e.target.value)}
           />
         </div>
         <div className="example-chips">
-          {["unsloth/gemma-4-26B-A4B-it-GGUF:UD-Q2_K_XL", "bartowski/Qwen2.5-Coder-7B-Instruct-GGUF:Q4_K_M"].map((example) => (
-            <button
-              key={example}
-              className="example-chip"
-              disabled={downloading}
-              onClick={() => onRepoChange(example)}
-            >
+          {[
+            "unsloth/gemma-4-26B-A4B-it-GGUF:UD-Q2_K_XL",
+            "bartowski/Qwen2.5-Coder-7B-Instruct-GGUF:Q4_K_M",
+          ].map((example) => (
+            <button key={example} className="example-chip" onClick={() => onRepoChange(example)}>
               {example.split("/")[1]}
             </button>
           ))}
@@ -119,17 +172,12 @@ export function HfDownloadPanel({
               className="form-input hf-input"
               placeholder="HF token for gated/private models"
               value={token}
-              disabled={downloading}
               onChange={(e) => onTokenChange(e.target.value)}
             />
           </div>
         </div>
 
-        <button
-          className="btn btn-wide"
-          onClick={onLookupFiles}
-          disabled={loadingFiles || downloading}
-        >
+        <button className="btn btn-wide" onClick={onLookupFiles} disabled={loadingFiles}>
           {loadingFiles ? (
             <>
               <Loader size={13} style={{ animation: "spin 1s linear infinite" }} />
@@ -152,14 +200,12 @@ export function HfDownloadPanel({
                   className="form-input hf-input"
                   placeholder="Filter by quant or filename"
                   value={fileFilter}
-                  disabled={downloading}
                   onChange={(e) => setFileFilter(e.target.value)}
                 />
               </div>
               <select
                 className="form-input small sort-select"
                 value={sortMode}
-                disabled={downloading}
                 onChange={(e) => setSortMode(e.target.value as "name" | "small" | "large")}
               >
                 <option value="name">Name</option>
@@ -176,11 +222,12 @@ export function HfDownloadPanel({
                   <button
                     key={file.path}
                     className={`hf-file-row ${file.path === selectedFilePath ? "selected" : ""}`}
-                    disabled={downloading}
                     onClick={() => onSelectedFileChange(file.path)}
                   >
                     <span>{file.filename}</span>
-                    <strong>{file.size_bytes ? formatBytes(file.size_bytes) : "size unknown"}</strong>
+                    <strong>
+                      {file.size_bytes ? formatBytes(file.size_bytes) : "size unknown"}
+                    </strong>
                   </button>
                 ))
               )}
@@ -194,7 +241,6 @@ export function HfDownloadPanel({
             <select
               className="select-model"
               value={targetDir}
-              disabled={downloading}
               onChange={(e) => onTargetDirChange(e.target.value)}
             >
               <option value="">Select model folder</option>
@@ -204,7 +250,7 @@ export function HfDownloadPanel({
                 </option>
               ))}
             </select>
-            <button className="icon-btn" onClick={onBrowseTargetDir} disabled={downloading} title="Browse folder">
+            <button className="icon-btn" onClick={onBrowseTargetDir} title="Browse folder">
               <FolderOpen size={12} />
             </button>
           </div>
@@ -213,11 +259,83 @@ export function HfDownloadPanel({
         {selectedFile && (
           <div className="selected-file-summary">
             <span>{selectedFile.filename}</span>
-            <strong>{selectedFile.size_bytes ? formatBytes(selectedFile.size_bytes) : "size unknown"}</strong>
+            <strong>
+              {selectedFile.size_bytes ? formatBytes(selectedFile.size_bytes) : "size unknown"}
+            </strong>
           </div>
         )}
 
-        {progress && (
+        {queue.length > 0 && (
+          <div className="download-queue">
+            <div className="download-queue-header">
+              <span>Download queue</span>
+              {finishedCount > 0 && (
+                <button className="btn btn-sm" onClick={onClearFinishedQueue}>
+                  Clear finished
+                </button>
+              )}
+            </div>
+            {queue.map((item) => (
+              <div key={item.id} className={`download-queue-item ${item.status}`}>
+                <div className="download-queue-item-main">
+                  <span className="download-queue-name">{item.filename}</span>
+                  <span
+                    className={`mini-status ${item.status === "downloading" ? "starting" : item.status === "complete" ? "running" : item.status === "error" ? "error" : ""}`}
+                  >
+                    {queueStatusLabel(item.status)}
+                  </span>
+                </div>
+                <div className="download-queue-meta">
+                  <span>{item.repo}</span>
+                  {item.error ? <span className="download-queue-error">{item.error}</span> : null}
+                </div>
+                {item.status === "pending" && (
+                  <button
+                    className="btn btn-sm"
+                    onClick={() => onRemoveQueued(item.id)}
+                    title="Remove from queue"
+                  >
+                    <Trash2 size={11} />
+                    Remove
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {canResume && partialDownload && !downloading && (
+          <div className="download-progress">
+            <div className="progress-meta">
+              <span>Partial download saved</span>
+              <strong>
+                {partialPercent !== null
+                  ? `${partialPercent}%`
+                  : formatBytes(partialDownload.downloaded_bytes)}
+              </strong>
+            </div>
+            <div className="progress-track">
+              <div
+                className="progress-fill cancelled"
+                style={{ width: `${partialPercent ?? 18}%` }}
+              />
+            </div>
+            <div className="progress-meta muted">
+              <span>Ready to resume</span>
+              <span>
+                {formatBytes(partialDownload.downloaded_bytes)}
+                {partialDownload.total_bytes
+                  ? ` / ${formatBytes(partialDownload.total_bytes)}`
+                  : ""}
+              </span>
+            </div>
+            <button className="btn btn-sm" onClick={onDiscardPartial}>
+              Discard partial
+            </button>
+          </div>
+        )}
+
+        {progress && downloading && (
           <div className="download-progress">
             <div className="progress-meta">
               <span>{progress.filename}</span>
@@ -230,7 +348,9 @@ export function HfDownloadPanel({
             <div className="progress-track">
               <div
                 className={`progress-fill ${progress.status}`}
-                style={{ width: `${progressPercent ?? (progress.status === "complete" ? 100 : 18)}%` }}
+                style={{
+                  width: `${progressPercent ?? (progress.status === "complete" ? 100 : 18)}%`,
+                }}
               />
             </div>
             <div className="progress-meta muted">
@@ -243,19 +363,19 @@ export function HfDownloadPanel({
           </div>
         )}
 
-        {!downloading ? (
-          <button
-            className="btn btn-success btn-block"
-            onClick={onStartDownload}
-            disabled={!selectedFilePath || !targetDir}
-          >
-            <Download size={15} />
-            Download Model
-          </button>
-        ) : (
+        <button
+          className="btn btn-success btn-block"
+          onClick={onEnqueueDownload}
+          disabled={!selectedFilePath || !targetDir}
+        >
+          <Download size={15} />
+          {primaryLabel}
+        </button>
+
+        {downloading && (
           <button className="btn btn-danger btn-block" onClick={onCancelDownload}>
             <X size={15} />
-            Cancel Download
+            Cancel Current Download
           </button>
         )}
 

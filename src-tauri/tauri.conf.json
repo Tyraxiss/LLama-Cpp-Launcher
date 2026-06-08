@@ -1,6 +1,6 @@
 {
   "productName": "LLama C++ Launcher",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "identifier": "com.llama.launcher",
   "build": {
     "beforeDevCommand": "npm run dev:web",
@@ -18,9 +18,7 @@
       }
     ],
     "security": {
-      "capabilities": [
-        "default-capability"
-      ]
+      "capabilities": ["default-capability"]
     }
   },
   "bundle": {

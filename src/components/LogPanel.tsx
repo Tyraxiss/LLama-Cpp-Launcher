@@ -33,7 +33,10 @@ export function LogPanel({
         onClick={onToggle}
       >
         {icon}
-        <h3>{title}{lines.length > 0 ? ` (${lines.length})` : ""}</h3>
+        <h3>
+          {title}
+          {lines.length > 0 ? ` (${lines.length})` : ""}
+        </h3>
         <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
           <button
             className="btn btn-sm"

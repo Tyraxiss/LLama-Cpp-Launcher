@@ -2,6 +2,31 @@
 
 All notable changes to LLama C++ Launcher are documented here.
 
+## [1.0.4] - 2026-06-08
+
+### Added
+
+- **Live memory monitoring** in the app header: system RAM, NVIDIA VRAM (via NVML), llama-server process usage, and per-model load breakdown parsed from server logs.
+- Memory stats are shown **as soon as the app opens**, not only after the server starts.
+- **Hugging Face download queue**: queue multiple GGUF downloads and let the launcher process them one at a time while keeping the form usable.
+- **Hugging Face download resume** with partial file retention, resume prompts, and discard support.
+- **Open WebUI update** from the launcher: show installed vs latest PyPI version, run `pip install --upgrade open-webui` in the selected venv with streamed log output, and block start while an update is running.
+- Shared **Rust → TypeScript IPC types** via ts-rs (`npm run generate:types`).
+- **ESLint** and **Prettier** tooling, plus expanded CI checks (format, lint, clippy, tests).
+- `@types/node` and `tsconfig.node.json` for Vite config type-checking.
+
+### Changed
+
+- Refactored the frontend: `App.tsx` is split into focused hooks (`useLlamaServer`, `useOpenWebui`, `useHfDownload`, `useResourceStats`, and others) and extracted panels (`ModelSelectionPanel`, `OpenWebuiPanel`, `ServerSettingsPanel`, `HeaderMemoryStats`).
+- Refactored the Rust backend into dedicated modules (`config`, `server`, `models`, `hf`, `open_webui`, `resources`, and others) with debounced config persistence and async model folder scanning.
+- llama-server now starts with `--metrics` for future observability endpoints.
+- Expanded Help tab content for server settings, downloads, Open WebUI, and troubleshooting.
+
+### Fixed
+
+- **Startup lag on Windows**: heavy startup work (model scan, auto-detect, GPU stats, Open WebUI version checks) is staggered so the window paints first.
+- **Console window flash on launch**: Open WebUI `pip show` / version checks now run as hidden subprocesses on Windows (`CREATE_NO_WINDOW`).
+
 ## [1.0.3] - 2026-06-03
 
 ### Fixed

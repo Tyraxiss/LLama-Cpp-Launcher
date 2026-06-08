@@ -9,14 +9,16 @@ export function HelpPanel() {
   const filteredSections = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return HELP_SECTIONS;
-    return HELP_SECTIONS
-      .map((section) => ({
-        ...section,
-        items: section.items.filter((item) =>
-          `${section.title} ${section.summary} ${item.term} ${item.detail}`.toLowerCase().includes(needle),
-        ),
-      }))
-      .filter((section) => section.items.length > 0 || section.title.toLowerCase().includes(needle));
+    return HELP_SECTIONS.map((section) => ({
+      ...section,
+      items: section.items.filter((item) =>
+        `${section.title} ${section.summary} ${item.term} ${item.detail}`
+          .toLowerCase()
+          .includes(needle),
+      ),
+    })).filter(
+      (section) => section.items.length > 0 || section.title.toLowerCase().includes(needle),
+    );
   }, [query]);
 
   const visibleSection =
@@ -59,7 +61,9 @@ export function HelpPanel() {
           {visibleSection ? (
             <>
               <div className="help-hero">
-                <span className="help-icon"><BookOpen size={18} /></span>
+                <span className="help-icon">
+                  <BookOpen size={18} />
+                </span>
                 <div>
                   <h2>{visibleSection.title}</h2>
                   <p>{visibleSection.summary}</p>

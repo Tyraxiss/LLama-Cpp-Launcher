@@ -3,8 +3,5 @@
   "identifier": "default-capability",
   "description": "Standard capabilities for Llama Launcher",
   "windows": ["main"],
-  "permissions": [
-    "core:default",
-    "dialog:default"
-  ]
+  "permissions": ["core:default", "dialog:default"]
 }
