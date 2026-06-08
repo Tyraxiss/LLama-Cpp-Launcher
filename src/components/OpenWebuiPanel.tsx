@@ -103,11 +103,7 @@ export function OpenWebuiPanel({
         </button>
       </div>
 
-      <button
-        className="btn btn-wide"
-        onClick={onUpdate}
-        disabled={!venvPath || controlsDisabled}
-      >
+      <button className="btn btn-wide" onClick={onUpdate} disabled={!venvPath || controlsDisabled}>
         {updating ? (
           <>
             <Loader size={13} style={{ animation: "spin 1s linear infinite" }} />

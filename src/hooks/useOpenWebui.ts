@@ -71,33 +71,36 @@ export function useOpenWebui({
     }
   }, [openWebuiLog, openWebuiLogExpanded]);
 
-  const refreshOpenWebuiVersions = useCallback(async (includeLatest = true) => {
-    if (!openWebuiVenvPath) {
-      setOpenWebuiVersion(null);
-      setOpenWebuiLatestVersion(null);
-      return;
-    }
+  const refreshOpenWebuiVersions = useCallback(
+    async (includeLatest = true) => {
+      if (!openWebuiVenvPath) {
+        setOpenWebuiVersion(null);
+        setOpenWebuiLatestVersion(null);
+        return;
+      }
 
-    try {
-      const version = await invoke<string>("get_open_webui_version", {
-        venvPath: openWebuiVenvPath,
-      });
-      setOpenWebuiVersion(version);
-    } catch {
-      setOpenWebuiVersion(null);
-    }
+      try {
+        const version = await invoke<string>("get_open_webui_version", {
+          venvPath: openWebuiVenvPath,
+        });
+        setOpenWebuiVersion(version);
+      } catch {
+        setOpenWebuiVersion(null);
+      }
 
-    if (!includeLatest) {
-      return;
-    }
+      if (!includeLatest) {
+        return;
+      }
 
-    try {
-      const latest = await invoke<string>("get_open_webui_latest_version");
-      setOpenWebuiLatestVersion(latest);
-    } catch {
-      setOpenWebuiLatestVersion(null);
-    }
-  }, [openWebuiVenvPath]);
+      try {
+        const latest = await invoke<string>("get_open_webui_latest_version");
+        setOpenWebuiLatestVersion(latest);
+      } catch {
+        setOpenWebuiLatestVersion(null);
+      }
+    },
+    [openWebuiVenvPath],
+  );
 
   useEffect(() => {
     if (!openWebuiVenvPath) {

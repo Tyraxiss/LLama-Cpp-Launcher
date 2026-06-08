@@ -347,9 +347,7 @@ export function useHfDownload({
 
   const removeQueuedDownload = useCallback(
     (id: string) => {
-      updateQueue((prev) =>
-        prev.filter((item) => !(item.id === id && item.status === "pending")),
-      );
+      updateQueue((prev) => prev.filter((item) => !(item.id === id && item.status === "pending")));
     },
     [updateQueue],
   );
