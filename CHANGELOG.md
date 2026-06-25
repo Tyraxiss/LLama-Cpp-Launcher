@@ -2,6 +2,13 @@
 
 All notable changes to LLama C++ Launcher are documented here.
 
+## [1.0.5] - 2026-06-08
+
+### Fixed
+
+- **Hugging Face download queue** now starts the first queued download immediately instead of leaving it stuck on "Queued" until a second model is added.
+- Queue worker uses synchronous ref updates so React state batching no longer races with the download processor.
+
 ## [1.0.4] - 2026-06-08
 
 ### Added
