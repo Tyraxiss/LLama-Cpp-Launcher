@@ -12,7 +12,13 @@ import type {
   ModelInfo,
   ModelScanResult,
 } from "../types";
-import { loadDownloadHistory, isMmprojFilename, samePath, saveDownloadHistory, suggestMmprojPath } from "../utils/config";
+import {
+  loadDownloadHistory,
+  isMmprojFilename,
+  samePath,
+  saveDownloadHistory,
+  suggestMmprojPath,
+} from "../utils/config";
 import type { ToastType } from "./useToast";
 
 interface UseHfDownloadOptions {

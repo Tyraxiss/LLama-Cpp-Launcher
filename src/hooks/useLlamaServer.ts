@@ -150,7 +150,15 @@ export function useLlamaServer({
       startupDeadline.current = null;
       showToast(String(error), "error");
     }
-  }, [buildCurrentConfig, exePath, modelPath, mmprojPath, saveAppConfig, serverSettings, showToast]);
+  }, [
+    buildCurrentConfig,
+    exePath,
+    modelPath,
+    mmprojPath,
+    saveAppConfig,
+    serverSettings,
+    showToast,
+  ]);
 
   const handleStop = useCallback(async () => {
     try {

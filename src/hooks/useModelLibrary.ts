@@ -121,7 +121,10 @@ export function useModelLibrary({
     });
     if (selected && typeof selected === "string") {
       if (isMmprojFilename(selected.split(/[/\\]/).pop() ?? "")) {
-        showToast("That file looks like an mmproj projector. Pick the main model instead.", "error");
+        showToast(
+          "That file looks like an mmproj projector. Pick the main model instead.",
+          "error",
+        );
         return;
       }
       setModelPath(selected);

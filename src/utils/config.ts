@@ -1,5 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppConfig, DownloadHistoryItem, ModelInfo, OpenWebuiSettings, ServerSettings } from "../types";
+import type {
+  AppConfig,
+  DownloadHistoryItem,
+  ModelInfo,
+  OpenWebuiSettings,
+  ServerSettings,
+} from "../types";
 import { DEFAULT_THEME } from "../themes";
 
 export const MAX_LOG_LINES = 200;
@@ -75,9 +81,7 @@ export function suggestMmprojPath(modelPath: string, mmprojs: ModelInfo[]): stri
   if (sameDir.length === 0) return null;
   if (sameDir.length === 1) return sameDir[0].path;
 
-  const modelStem = (modelPath.split(/[/\\]/).pop() ?? "")
-    .replace(/\.gguf$/i, "")
-    .toLowerCase();
+  const modelStem = (modelPath.split(/[/\\]/).pop() ?? "").replace(/\.gguf$/i, "").toLowerCase();
   let best = sameDir[0];
   let bestScore = -1;
   for (const mmproj of sameDir) {
@@ -86,7 +90,10 @@ export function suggestMmprojPath(modelPath: string, mmprojs: ModelInfo[]): stri
     if (filename.includes(modelStem)) score += 10;
     const compactModel = modelStem.replace(/[-_.]/g, "");
     const compactMmproj = filename.replace(/mmproj/gi, "").replace(/[-_.]/g, "");
-    if (compactModel && (compactMmproj.includes(compactModel) || compactModel.includes(compactMmproj))) {
+    if (
+      compactModel &&
+      (compactMmproj.includes(compactModel) || compactModel.includes(compactMmproj))
+    ) {
       score += 5;
     }
     if (score > bestScore) {
@@ -157,8 +164,7 @@ export function buildConfigSnapshot(
     ...base,
     exe_path: options.exePath ?? base.exe_path,
     last_model: options.modelPath ?? base.last_model,
-    last_mmproj:
-      options.mmprojPath !== undefined ? options.mmprojPath : base.last_mmproj,
+    last_mmproj: options.mmprojPath !== undefined ? options.mmprojPath : base.last_mmproj,
     last_theme: options.theme ?? base.last_theme,
     last_port: server?.port ?? base.last_port,
     last_host: server?.host ?? base.last_host,
