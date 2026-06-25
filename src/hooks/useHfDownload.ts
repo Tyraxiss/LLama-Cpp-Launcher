@@ -91,12 +91,15 @@ export function useHfDownload({
     };
   }, [hfRepo, hfSelectedFile, hfTargetDir, hfToken]);
 
-  const syncQueue = useCallback((updater: (prev: HfDownloadQueueItem[]) => HfDownloadQueueItem[]) => {
-    const next = updater(downloadQueueRef.current);
-    downloadQueueRef.current = next;
-    setDownloadQueue(next);
-    return next;
-  }, []);
+  const syncQueue = useCallback(
+    (updater: (prev: HfDownloadQueueItem[]) => HfDownloadQueueItem[]) => {
+      const next = updater(downloadQueueRef.current);
+      downloadQueueRef.current = next;
+      setDownloadQueue(next);
+      return next;
+    },
+    [],
+  );
 
   const kickDownloadQueue = useCallback(() => {
     queueMicrotask(() => {
@@ -356,7 +359,16 @@ export function useHfDownload({
     ]);
     showToast("Added to download queue", "success");
     kickDownloadQueue();
-  }, [hfFiles, hfRepo, hfSelectedFile, hfTargetDir, hfToken, kickDownloadQueue, showToast, syncQueue]);
+  }, [
+    hfFiles,
+    hfRepo,
+    hfSelectedFile,
+    hfTargetDir,
+    hfToken,
+    kickDownloadQueue,
+    showToast,
+    syncQueue,
+  ]);
 
   const removeQueuedDownload = useCallback(
     (id: string) => {
@@ -469,4 +481,4 @@ export function useHfDownload({
     clearDownloadHistory,
     canResume,
   };
-};
+}

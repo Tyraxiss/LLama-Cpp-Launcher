@@ -48,11 +48,11 @@ Built with **Tauri 2**, **React**, and **Rust**. Current version: **1.0.5**.
 
 ## Requirements
 
-| | |
-|---|---|
-| **OS** | Windows 10/11 (x64) |
-| **llama.cpp** | A local `llama-server.exe` build |
-| **Open WebUI** | Optional — Python venv with `open-webui` installed |
+|                |                                                                                     |
+| -------------- | ----------------------------------------------------------------------------------- |
+| **OS**         | Windows 10/11 (x64)                                                                 |
+| **llama.cpp**  | A local `llama-server.exe` build                                                    |
+| **Open WebUI** | Optional — Python venv with `open-webui` installed                                  |
 | **VRAM stats** | Optional — NVIDIA GPU (VRAM monitoring uses NVML; system RAM works on all machines) |
 
 For building from source you also need [Node.js](https://nodejs.org/) (22+ recommended) and the [Rust toolchain](https://rustup.rs/).
@@ -92,13 +92,13 @@ npm install
 
 Common commands:
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Run the Tauri app in development |
-| `npm run dev:web` | Run the Vite frontend only (browser) |
-| `npm run build` | Build release installers (NSIS + MSI) |
-| `npm run lint` | ESLint |
-| `npm run format` | Prettier (write) |
+| Command                  | Description                                       |
+| ------------------------ | ------------------------------------------------- |
+| `npm run dev`            | Run the Tauri app in development                  |
+| `npm run dev:web`        | Run the Vite frontend only (browser)              |
+| `npm run build`          | Build release installers (NSIS + MSI)             |
+| `npm run lint`           | ESLint                                            |
+| `npm run format`         | Prettier (write)                                  |
 | `npm run generate:types` | Regenerate Rust → TypeScript IPC bindings (ts-rs) |
 
 Release installers are written to:
