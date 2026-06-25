@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppConfig, DownloadHistoryItem, OpenWebuiSettings, ServerSettings } from "../types";
+import type { AppConfig, DownloadHistoryItem, ModelInfo, OpenWebuiSettings, ServerSettings } from "../types";
 import { DEFAULT_THEME } from "../themes";
 
 export const MAX_LOG_LINES = 200;
@@ -30,6 +30,7 @@ export function defaultConfig(): AppConfig {
     last_theme: DEFAULT_THEME,
     model_directories: [],
     last_model: null,
+    last_mmproj: null,
     last_port: 8080,
     last_host: "127.0.0.1",
     last_open_webui_port: 3000,
@@ -54,6 +55,46 @@ export function defaultConfig(): AppConfig {
 
 export function samePath(a: string, b: string): boolean {
   return a.localeCompare(b, undefined, { sensitivity: "accent" }) === 0;
+}
+
+export function isMmprojFilename(filename: string): boolean {
+  return filename.toLowerCase().includes("mmproj");
+}
+
+export function parentDir(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, "/");
+  const index = normalized.lastIndexOf("/");
+  return index >= 0 ? filePath.slice(0, index) : "";
+}
+
+/** Pick a vision projector in the same folder as the selected model. */
+export function suggestMmprojPath(modelPath: string, mmprojs: ModelInfo[]): string | null {
+  if (!modelPath) return null;
+  const modelDir = parentDir(modelPath);
+  const sameDir = mmprojs.filter((mmproj) => samePath(parentDir(mmproj.path), modelDir));
+  if (sameDir.length === 0) return null;
+  if (sameDir.length === 1) return sameDir[0].path;
+
+  const modelStem = (modelPath.split(/[/\\]/).pop() ?? "")
+    .replace(/\.gguf$/i, "")
+    .toLowerCase();
+  let best = sameDir[0];
+  let bestScore = -1;
+  for (const mmproj of sameDir) {
+    const filename = mmproj.filename.toLowerCase();
+    let score = 0;
+    if (filename.includes(modelStem)) score += 10;
+    const compactModel = modelStem.replace(/[-_.]/g, "");
+    const compactMmproj = filename.replace(/mmproj/gi, "").replace(/[-_.]/g, "");
+    if (compactModel && (compactMmproj.includes(compactModel) || compactModel.includes(compactMmproj))) {
+      score += 5;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = mmproj;
+    }
+  }
+  return best.path;
 }
 
 export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
@@ -103,6 +144,7 @@ export function buildConfigSnapshot(
   options: {
     exePath?: string;
     modelPath?: string;
+    mmprojPath?: string | null;
     theme?: string;
     server?: ServerSettings;
     openWebui?: OpenWebuiSettings;
@@ -115,6 +157,8 @@ export function buildConfigSnapshot(
     ...base,
     exe_path: options.exePath ?? base.exe_path,
     last_model: options.modelPath ?? base.last_model,
+    last_mmproj:
+      options.mmprojPath !== undefined ? options.mmprojPath : base.last_mmproj,
     last_theme: options.theme ?? base.last_theme,
     last_port: server?.port ?? base.last_port,
     last_host: server?.host ?? base.last_host,

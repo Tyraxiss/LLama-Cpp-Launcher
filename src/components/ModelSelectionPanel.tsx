@@ -1,40 +1,51 @@
-import { FolderOpen, HardDrive, Plus, RefreshCw, X } from "lucide-react";
+import { Eye, FolderOpen, HardDrive, Plus, RefreshCw, X } from "lucide-react";
 import type { AppConfig, ModelInfo } from "../types";
 import { formatBytes } from "../utils/config";
 
 interface ModelSelectionPanelProps {
   config: AppConfig;
   models: ModelInfo[];
+  mmprojs: ModelInfo[];
   modelPath: string;
+  mmprojPath: string;
   scanInProgress: boolean;
   onAddDirectory: () => void;
   onRemoveDirectory: (dir: string) => void;
   onRescan: () => void;
   onPickModel: () => void;
+  onPickMmproj: () => void;
   onSelectModel: (path: string) => void;
+  onSelectMmproj: (path: string) => void;
 }
 
 export function ModelSelectionPanel({
   config,
   models,
+  mmprojs,
   modelPath,
+  mmprojPath,
   scanInProgress,
   onAddDirectory,
   onRemoveDirectory,
   onRescan,
   onPickModel,
+  onPickMmproj,
   onSelectModel,
+  onSelectMmproj,
 }: ModelSelectionPanelProps) {
   const selectedModelInfo = models.find((model) => model.path === modelPath);
+  const selectedMmprojInfo = mmprojs.find((mmproj) => mmproj.path === mmprojPath);
   const savedModelFilename = modelPath ? modelPath.split(/[/\\]/).pop() || modelPath : "";
+  const savedMmprojFilename = mmprojPath ? mmprojPath.split(/[/\\]/).pop() || mmprojPath : "";
   const hasSavedModelOutsideScan = Boolean(modelPath && !selectedModelInfo);
+  const hasSavedMmprojOutsideScan = Boolean(mmprojPath && !selectedMmprojInfo);
 
   return (
     <div className="card">
       <div className="card-header">
         <HardDrive size={14} className="icon" />
         <h3>Model Selection</h3>
-        <span className="card-meta">{models.length} found</span>
+        <span className="card-meta">{models.length} models</span>
       </div>
 
       <div style={{ marginBottom: 8 }}>
@@ -105,6 +116,52 @@ export function ModelSelectionPanel({
         {modelPath && !selectedModelInfo && (
           <div className="path-display" style={{ marginTop: 8 }}>
             {modelPath}
+          </div>
+        )}
+      </div>
+
+      <div className="card-header" style={{ marginTop: 16, marginBottom: 8 }}>
+        <Eye size={14} className="icon" />
+        <h3>Vision Projector</h3>
+        <span className="card-meta">{mmprojs.length} mmproj</span>
+      </div>
+      <p className="text-muted" style={{ fontSize: 11, marginBottom: 8 }}>
+        Optional. Required for vision/multimodal models (LLaVA, Gemma 3 vision, etc.).
+      </p>
+
+      <div className="select-wrapper">
+        <select
+          className="select-model"
+          value={mmprojPath}
+          onChange={(e) => onSelectMmproj(e.target.value)}
+        >
+          <option value="">— None —</option>
+          {hasSavedMmprojOutsideScan && (
+            <option value={mmprojPath}>{savedMmprojFilename} (saved path)</option>
+          )}
+          {mmprojs.map((mmproj) => (
+            <option key={mmproj.path} value={mmproj.path}>
+              {mmproj.filename} ({formatBytes(mmproj.size_bytes)})
+            </option>
+          ))}
+        </select>
+        <span className="select-arrow">▼</span>
+      </div>
+
+      {selectedMmprojInfo && (
+        <div className="path-display" style={{ marginTop: 8 }}>
+          {selectedMmprojInfo.filename} — {formatBytes(selectedMmprojInfo.size_bytes)}
+        </div>
+      )}
+
+      <div style={{ marginTop: 8 }}>
+        <button className="btn btn-sm" onClick={onPickMmproj}>
+          <FolderOpen size={12} />
+          Browse for mmproj
+        </button>
+        {mmprojPath && !selectedMmprojInfo && (
+          <div className="path-display" style={{ marginTop: 8 }}>
+            {mmprojPath}
           </div>
         )}
       </div>

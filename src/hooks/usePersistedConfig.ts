@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { DEFAULT_THEME, isThemeId, type ThemeId } from "../themes";
-import type { AppConfig, ModelInfo, ServerSettings } from "../types";
+import type { AppConfig, ModelInfo, ModelScanResult, ServerSettings } from "../types";
 import {
   buildConfigSnapshot,
   defaultConfig,
   persistConfig,
   serverSettingsFromConfig,
+  suggestMmprojPath,
 } from "../utils/config";
 import { deferAfterStartup } from "../utils/startup";
 
@@ -15,7 +16,9 @@ export function usePersistedConfig() {
   const [theme, setTheme] = useState<ThemeId>(DEFAULT_THEME);
   const [exePath, setExePath] = useState("");
   const [modelPath, setModelPath] = useState("");
+  const [mmprojPath, setMmprojPath] = useState("");
   const [models, setModels] = useState<ModelInfo[]>([]);
+  const [mmprojs, setMmprojs] = useState<ModelInfo[]>([]);
   const [serverSettings, setServerSettings] = useState<ServerSettings>(() =>
     serverSettingsFromConfig(defaultConfig()),
   );
@@ -38,6 +41,7 @@ export function usePersistedConfig() {
       buildConfigSnapshot(base, {
         exePath,
         modelPath,
+        mmprojPath: mmprojPath || null,
         theme,
         server: serverSettings,
         openWebui: {
@@ -50,6 +54,7 @@ export function usePersistedConfig() {
       config,
       exePath,
       modelPath,
+      mmprojPath,
       theme,
       serverSettings,
       openWebuiVenvPath,
@@ -76,6 +81,7 @@ export function usePersistedConfig() {
 
         if (cfg.exe_path) setExePath(cfg.exe_path);
         if (cfg.last_model) setModelPath(cfg.last_model);
+        if (cfg.last_mmproj) setMmprojPath(cfg.last_mmproj);
         setServerSettings(serverSettingsFromConfig(cfg));
         if (cfg.open_webui_venv_path) setOpenWebuiVenvPath(cfg.open_webui_venv_path);
         setOpenWebuiPort(cfg.last_open_webui_port ?? 3000);
@@ -95,16 +101,40 @@ export function usePersistedConfig() {
 
         if (workingConfig.model_directories?.length) {
           try {
-            const found = (await invoke("scan_models", {
+            const scan = (await invoke("scan_models", {
               directories: workingConfig.model_directories,
-            })) as ModelInfo[];
+            })) as ModelScanResult;
             if (cancelled) {
               return;
             }
-            setModels(found);
-            if (!workingConfig.last_model && found.length > 0) {
-              setModelPath(found[0].path);
-              const updated = { ...workingConfig, last_model: found[0].path };
+            setModels(scan.models);
+            setMmprojs(scan.mmprojs);
+
+            let nextModel = workingConfig.last_model;
+            if (!nextModel && scan.models.length > 0) {
+              nextModel = scan.models[0].path;
+              setModelPath(nextModel);
+            }
+
+            let nextMmproj = workingConfig.last_mmproj;
+            if (nextModel) {
+              const savedStillValid =
+                nextMmproj && scan.mmprojs.some((entry) => entry.path === nextMmproj);
+              if (!savedStillValid) {
+                nextMmproj = suggestMmprojPath(nextModel, scan.mmprojs);
+                setMmprojPath(nextMmproj ?? "");
+              }
+            }
+
+            if (
+              nextModel !== workingConfig.last_model ||
+              nextMmproj !== workingConfig.last_mmproj
+            ) {
+              const updated = {
+                ...workingConfig,
+                last_model: nextModel,
+                last_mmproj: nextMmproj ?? null,
+              };
               workingConfig = updated;
               await saveAppConfig(updated);
             }
@@ -163,8 +193,12 @@ export function usePersistedConfig() {
     setExePath,
     modelPath,
     setModelPath,
+    mmprojPath,
+    setMmprojPath,
     models,
     setModels,
+    mmprojs,
+    setMmprojs,
     serverSettings,
     setServerSettings,
     openWebuiVenvPath,

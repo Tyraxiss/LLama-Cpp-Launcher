@@ -39,6 +39,7 @@ fn main() {
             config::load_config,
             config::save_config,
             models::scan_models,
+            models::suggest_mmproj,
             hf::list_hf_gguf_files,
             hf::get_hf_partial_download,
             hf::discard_hf_partial_download,

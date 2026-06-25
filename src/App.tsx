@@ -51,8 +51,12 @@ function App() {
     setExePath,
     modelPath,
     setModelPath,
+    mmprojPath,
+    setMmprojPath,
     models,
     setModels,
+    mmprojs,
+    setMmprojs,
     serverSettings,
     setServerSettings,
     openWebuiVenvPath,
@@ -73,15 +77,20 @@ function App() {
     config,
     saveAppConfig,
     setModels,
+    setMmprojs,
     setModelPath,
+    setMmprojPath,
     showToast,
   });
 
   const modelLibrary = useModelLibrary({
     config,
+    mmprojs,
     saveAppConfig,
     setModels,
+    setMmprojs,
     setModelPath,
+    setMmprojPath,
     hfTargetDir: hf.hfTargetDir,
     setHfTargetDir: hf.setHfTargetDir,
     showToast,
@@ -90,6 +99,7 @@ function App() {
   const server = useLlamaServer({
     exePath,
     modelPath,
+    mmprojPath,
     serverSettings,
     buildCurrentConfig,
     saveAppConfig,
@@ -292,13 +302,17 @@ function App() {
             <ModelSelectionPanel
               config={config}
               models={models}
+              mmprojs={mmprojs}
               modelPath={modelPath}
+              mmprojPath={mmprojPath}
               scanInProgress={modelLibrary.scanInProgress}
               onAddDirectory={modelLibrary.addModelDirectory}
               onRemoveDirectory={modelLibrary.removeModelDirectory}
               onRescan={modelLibrary.rescanModels}
               onPickModel={modelLibrary.pickModel}
+              onPickMmproj={modelLibrary.pickMmproj}
               onSelectModel={modelLibrary.handleModelSelect}
+              onSelectMmproj={modelLibrary.handleMmprojSelect}
             />
 
             <div className="card">

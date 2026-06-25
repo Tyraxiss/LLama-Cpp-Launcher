@@ -12,6 +12,7 @@ impl Default for AppConfig {
             last_theme: "dark-teal".into(),
             model_directories: vec![],
             last_model: None,
+            last_mmproj: None,
             last_port: 8080,
             last_host: "127.0.0.1".into(),
             last_open_webui_port: 3000,

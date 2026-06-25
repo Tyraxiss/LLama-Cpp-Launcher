@@ -10,6 +10,7 @@ export type ProcessStatus = "stopped" | "starting" | "running" | "error";
 interface UseLlamaServerOptions {
   exePath: string;
   modelPath: string;
+  mmprojPath: string;
   serverSettings: ServerSettings;
   buildCurrentConfig: (base?: AppConfig) => AppConfig;
   saveAppConfig: (cfg: AppConfig) => Promise<void>;
@@ -19,6 +20,7 @@ interface UseLlamaServerOptions {
 export function useLlamaServer({
   exePath,
   modelPath,
+  mmprojPath,
   serverSettings,
   buildCurrentConfig,
   saveAppConfig,
@@ -118,6 +120,7 @@ export function useLlamaServer({
         config: {
           exe_path: exePath,
           model_path: modelPath,
+          mmproj_path: mmprojPath || null,
           host: serverSettings.host,
           port: serverSettings.port,
           ctx_size: serverSettings.ctxSize,
@@ -147,7 +150,7 @@ export function useLlamaServer({
       startupDeadline.current = null;
       showToast(String(error), "error");
     }
-  }, [buildCurrentConfig, exePath, modelPath, saveAppConfig, serverSettings, showToast]);
+  }, [buildCurrentConfig, exePath, modelPath, mmprojPath, saveAppConfig, serverSettings, showToast]);
 
   const handleStop = useCallback(async () => {
     try {

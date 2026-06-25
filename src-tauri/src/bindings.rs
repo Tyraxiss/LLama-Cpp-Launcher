@@ -14,6 +14,7 @@ pub struct AppConfig {
     pub last_theme: String,
     pub model_directories: Vec<String>,
     pub last_model: Option<String>,
+    pub last_mmproj: Option<String>,
     pub last_port: u16,
     pub last_host: String,
     pub last_open_webui_port: u16,
@@ -42,6 +43,13 @@ pub struct ModelInfo {
     pub filename: String,
     #[ts(type = "number")]
     pub size_bytes: u64,
+}
+
+#[derive(Debug, Serialize, Clone, TS)]
+#[ts(export_to = "../../src/generated/bindings.ts")]
+pub struct ModelScanResult {
+    pub models: Vec<ModelInfo>,
+    pub mmprojs: Vec<ModelInfo>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, TS)]
@@ -101,6 +109,7 @@ pub struct HfPartialDownload {
 pub struct ServerStartConfig {
     pub exe_path: String,
     pub model_path: String,
+    pub mmproj_path: Option<String>,
     pub host: String,
     pub port: u16,
     pub ctx_size: u32,
@@ -194,6 +203,7 @@ mod export_bindings {
     fn export_typescript_bindings() {
         AppConfig::export().expect("export AppConfig");
         ModelInfo::export().expect("export ModelInfo");
+        ModelScanResult::export().expect("export ModelScanResult");
         HfDownloadStatus::export().expect("export HfDownloadStatus");
         HfGgufFile::export().expect("export HfGgufFile");
         HfDownloadProgress::export().expect("export HfDownloadProgress");

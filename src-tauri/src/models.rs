@@ -1,23 +1,40 @@
 use std::collections::HashSet;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-pub use crate::bindings::ModelInfo;
+pub use crate::bindings::{ModelInfo, ModelScanResult};
 
-pub fn scan_models_sync(directories: Vec<String>) -> Vec<ModelInfo> {
-    let mut models = Vec::new();
+pub fn is_mmproj_filename(filename: &str) -> bool {
+    filename.to_ascii_lowercase().contains("mmproj")
+}
+
+pub fn scan_models_sync(directories: Vec<String>) -> ModelScanResult {
+    let mut all = Vec::new();
     let mut seen_dirs = HashSet::new();
     let mut seen_models = HashSet::new();
     for dir in &directories {
         scan_dir_recursive(
             PathBuf::from(dir),
-            &mut models,
+            &mut all,
             &mut seen_dirs,
             &mut seen_models,
         );
     }
+
+    let mut models = Vec::new();
+    let mut mmprojs = Vec::new();
+    for model in all {
+        if is_mmproj_filename(&model.filename) {
+            mmprojs.push(model);
+        } else {
+            models.push(model);
+        }
+    }
+
     models.sort_by_key(|model| model.filename.to_lowercase());
-    models
+    mmprojs.sort_by_key(|model| model.filename.to_lowercase());
+
+    ModelScanResult { models, mmprojs }
 }
 
 fn scan_dir_recursive(
@@ -67,9 +84,79 @@ fn scan_dir_recursive(
     }
 }
 
+pub fn suggest_mmproj_for_model(model_path: &str, mmprojs: &[ModelInfo]) -> Option<String> {
+    let model_path = Path::new(model_path);
+    let model_dir = model_path.parent()?;
+    let model_dir = fs::canonicalize(model_dir).unwrap_or_else(|_| model_dir.to_path_buf());
+
+    let same_dir: Vec<&ModelInfo> = mmprojs
+        .iter()
+        .filter(|mmproj| {
+            Path::new(&mmproj.path)
+                .parent()
+                .and_then(|parent| fs::canonicalize(parent).ok())
+                .map(|parent| parent == model_dir)
+                .unwrap_or(false)
+        })
+        .collect();
+
+    match same_dir.len() {
+        0 => None,
+        1 => Some(same_dir[0].path.clone()),
+        _ => {
+            let model_stem = model_path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+
+            let mut best = same_dir[0];
+            let mut best_score = 0_i32;
+            for mmproj in &same_dir {
+                let filename = mmproj.filename.to_ascii_lowercase();
+                let mut score = 0;
+                if filename.contains(&model_stem) {
+                    score += 10;
+                }
+                let stripped = filename
+                    .replace("mmproj", "")
+                    .replace(['-', '_', '.'], "");
+                let model_compact = model_stem.replace(['-', '_', '.'], "");
+                if !model_compact.is_empty()
+                    && (stripped.contains(&model_compact) || model_compact.contains(&stripped))
+                {
+                    score += 5;
+                }
+                if score > best_score {
+                    best_score = score;
+                    best = mmproj;
+                }
+            }
+            Some(best.path.clone())
+        }
+    }
+}
+
 #[tauri::command]
-pub async fn scan_models(directories: Vec<String>) -> Result<Vec<ModelInfo>, String> {
+pub async fn scan_models(directories: Vec<String>) -> Result<ModelScanResult, String> {
     tauri::async_runtime::spawn_blocking(move || scan_models_sync(directories))
         .await
         .map_err(|e| format!("Model scan failed: {}", e))
+}
+
+#[tauri::command]
+pub fn suggest_mmproj(model_path: String, mmprojs: Vec<ModelInfo>) -> Option<String> {
+    suggest_mmproj_for_model(&model_path, &mmprojs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_mmproj_filenames() {
+        assert!(is_mmproj_filename("mmproj-model-f16.gguf"));
+        assert!(is_mmproj_filename("llava-mmproj.Q4_K_M.gguf"));
+        assert!(!is_mmproj_filename("model-Q4_K_M.gguf"));
+    }
 }

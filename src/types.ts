@@ -6,6 +6,7 @@ export type {
   HfGgufFile,
   HfPartialDownload,
   ModelInfo,
+  ModelScanResult,
   ModelMemoryBreakdown,
   OpenWebUiStartConfig,
   ResourceStats,

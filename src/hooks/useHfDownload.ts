@@ -10,15 +10,18 @@ import type {
   HfGgufFile,
   HfPartialDownload,
   ModelInfo,
+  ModelScanResult,
 } from "../types";
-import { loadDownloadHistory, samePath, saveDownloadHistory } from "../utils/config";
+import { loadDownloadHistory, isMmprojFilename, samePath, saveDownloadHistory, suggestMmprojPath } from "../utils/config";
 import type { ToastType } from "./useToast";
 
 interface UseHfDownloadOptions {
   config: AppConfig;
   saveAppConfig: (cfg: AppConfig) => Promise<void>;
   setModels: (models: ModelInfo[]) => void;
+  setMmprojs: (mmprojs: ModelInfo[]) => void;
   setModelPath: (path: string) => void;
+  setMmprojPath: (path: string) => void;
   showToast: (msg: string, type: ToastType) => void;
 }
 
@@ -48,7 +51,9 @@ export function useHfDownload({
   config,
   saveAppConfig,
   setModels,
+  setMmprojs,
   setModelPath,
+  setMmprojPath,
   showToast,
 }: UseHfDownloadOptions) {
   const [hfRepo, setHfRepo] = useState("");
@@ -67,7 +72,9 @@ export function useHfDownload({
   const configRef = useRef(config);
   const saveAppConfigRef = useRef(saveAppConfig);
   const setModelsRef = useRef(setModels);
+  const setMmprojsRef = useRef(setMmprojs);
   const setModelPathRef = useRef(setModelPath);
+  const setMmprojPathRef = useRef(setMmprojPath);
   const showToastRef = useRef(showToast);
   const downloadQueueRef = useRef<HfDownloadQueueItem[]>([]);
   const queueProcessingRef = useRef(false);
@@ -78,9 +85,11 @@ export function useHfDownload({
     configRef.current = config;
     saveAppConfigRef.current = saveAppConfig;
     setModelsRef.current = setModels;
+    setMmprojsRef.current = setMmprojs;
     setModelPathRef.current = setModelPath;
+    setMmprojPathRef.current = setMmprojPath;
     showToastRef.current = showToast;
-  }, [config, saveAppConfig, setModels, setModelPath, showToast]);
+  }, [config, saveAppConfig, setModels, setMmprojs, setModelPath, setMmprojPath, showToast]);
 
   useEffect(() => {
     hfFormRef.current = {
@@ -200,13 +209,33 @@ export function useHfDownload({
       const dirs = cfg.model_directories.some((dir) => samePath(dir, item.target_dir))
         ? cfg.model_directories
         : [...cfg.model_directories, item.target_dir];
-      const found = (await invoke("scan_models", { directories: dirs })) as ModelInfo[];
-      setModelsRef.current(found);
-      setModelPathRef.current(downloadedPath);
+      const scan = (await invoke("scan_models", { directories: dirs })) as ModelScanResult;
+      setModelsRef.current(scan.models);
+      setMmprojsRef.current(scan.mmprojs);
+
+      const downloadedName = downloadedPath.split(/[/\\]/).pop() || downloadedPath;
+      const isMmproj = isMmprojFilename(downloadedName);
+      let nextModel = cfg.last_model;
+      let nextMmproj = cfg.last_mmproj;
+
+      if (!isMmproj) {
+        nextModel = downloadedPath;
+        setModelPathRef.current(downloadedPath);
+        nextMmproj = suggestMmprojPath(downloadedPath, scan.mmprojs);
+        setMmprojPathRef.current(nextMmproj ?? "");
+      } else if (cfg.last_model) {
+        const suggested = suggestMmprojPath(cfg.last_model, scan.mmprojs);
+        if (suggested === downloadedPath) {
+          nextMmproj = downloadedPath;
+          setMmprojPathRef.current(downloadedPath);
+        }
+      }
+
       await saveAppConfigRef.current({
         ...cfg,
         model_directories: dirs,
-        last_model: downloadedPath,
+        last_model: nextModel ?? null,
+        last_mmproj: nextMmproj ?? null,
       });
 
       setDownloadHistory((prev) => {

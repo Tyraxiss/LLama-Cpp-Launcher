@@ -22,6 +22,11 @@ pub async fn start_llama_server(
     if !PathBuf::from(&config.model_path).is_file() {
         return Err("Selected model file was not found.".into());
     }
+    if let Some(ref mmproj) = config.mmproj_path {
+        if !mmproj.is_empty() && !PathBuf::from(mmproj).is_file() {
+            return Err("Selected mmproj file was not found.".into());
+        }
+    }
 
     let mut args: Vec<String> = vec![
         "-m".into(),
@@ -45,6 +50,13 @@ pub async fn start_llama_server(
         "-b".into(),
         config.batch_size.to_string(),
     ];
+
+    if let Some(ref mmproj) = config.mmproj_path {
+        if !mmproj.is_empty() {
+            args.push("--mmproj".into());
+            args.push(mmproj.clone());
+        }
+    }
 
     if config.min_p > 0.0 {
         args.push("--min-p".into());
