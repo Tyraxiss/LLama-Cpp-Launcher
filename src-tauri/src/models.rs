@@ -118,9 +118,7 @@ pub fn suggest_mmproj_for_model(model_path: &str, mmprojs: &[ModelInfo]) -> Opti
                 if filename.contains(&model_stem) {
                     score += 10;
                 }
-                let stripped = filename
-                    .replace("mmproj", "")
-                    .replace(['-', '_', '.'], "");
+                let stripped = filename.replace("mmproj", "").replace(['-', '_', '.'], "");
                 let model_compact = model_stem.replace(['-', '_', '.'], "");
                 if !model_compact.is_empty()
                     && (stripped.contains(&model_compact) || model_compact.contains(&stripped))

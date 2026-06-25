@@ -152,10 +152,7 @@ fn hf_get(url: String, token: Option<&str>) -> reqwest::RequestBuilder {
     if let Some(token) = token {
         let token = token.trim();
         if !token.is_empty() {
-            request = request.header(
-                reqwest::header::AUTHORIZATION,
-                format!("Bearer {}", token),
-            );
+            request = request.header(reqwest::header::AUTHORIZATION, format!("Bearer {}", token));
         }
     }
     request
@@ -238,10 +235,10 @@ fn emit_download_progress(
     last_emitted_bytes: &mut u64,
     force: bool,
 ) {
-    let bytes_delta = progress.downloaded_bytes.saturating_sub(*last_emitted_bytes);
-    if force
-        || last_emit.elapsed() >= PROGRESS_EMIT_INTERVAL
-        || bytes_delta >= PROGRESS_EMIT_BYTES
+    let bytes_delta = progress
+        .downloaded_bytes
+        .saturating_sub(*last_emitted_bytes);
+    if force || last_emit.elapsed() >= PROGRESS_EMIT_INTERVAL || bytes_delta >= PROGRESS_EMIT_BYTES
     {
         let downloaded_bytes = progress.downloaded_bytes;
         let _ = app_handle.emit("hf-download-progress", progress);
