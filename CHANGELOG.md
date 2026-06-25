@@ -2,6 +2,17 @@
 
 All notable changes to LLama C++ Launcher are documented here.
 
+## [1.0.7] - 2026-06-25
+
+### Added
+
+- **Vision projector (mmproj) support** for multimodal models (LLaVA, Gemma 3 vision, Qwen-VL, and similar).
+- Model scan separates main `.gguf` files from mmproj projectors; mmproj files no longer appear in the main model dropdown.
+- **Vision Projector** picker in Model Selection with browse support and optional **None** for text-only models.
+- Auto-pairs an mmproj in the same folder when you select a model; choice is persisted in config.
+- llama-server starts with `--mmproj` when a projector is selected.
+- Hugging Face downloads update both model and mmproj lists and auto-pair after a download completes.
+
 ## [1.0.6] - 2026-06-25
 
 ### Fixed

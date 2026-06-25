@@ -1,6 +1,6 @@
 [package]
 name = "llama-cpp-launcher"
-version = "1.0.6"
+version = "1.0.7"
 description = "A launcher for llama.cpp server"
 authors = ["LLama C++ Launcher"]
 edition = "2021"

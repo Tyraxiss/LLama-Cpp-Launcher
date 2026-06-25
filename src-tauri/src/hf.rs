@@ -138,7 +138,7 @@ fn shared_hf_client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
         reqwest::Client::builder()
-            .user_agent("LLama C++ Launcher/1.0.6")
+            .user_agent("LLama C++ Launcher/1.0.7")
             .pool_max_idle_per_host(4)
             .tcp_keepalive(Duration::from_secs(60))
             .build()
