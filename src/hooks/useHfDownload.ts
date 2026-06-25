@@ -123,6 +123,27 @@ export function useHfDownload({
     };
   }, []);
 
+  const refreshPartialForItem = useCallback(async (item: HfDownloadQueueItem) => {
+    try {
+      const partial = (await invoke("get_hf_partial_download", {
+        repo: item.repo,
+        file_path: item.file_path,
+        target_dir: item.target_dir,
+        token: item.token,
+      })) as HfPartialDownload | null;
+      const form = hfFormRef.current;
+      if (
+        queueItemKey(form.repo, form.selectedFile, form.targetDir) ===
+        queueItemKey(item.repo, item.file_path, item.target_dir)
+      ) {
+        setHfPartialDownload(partial);
+      }
+      return partial;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const refreshHfPartialDownload = useCallback(async () => {
     const { repo, selectedFile, targetDir, token } = hfFormRef.current;
     if (!repo.trim() || !selectedFile || !targetDir) {
@@ -273,6 +294,8 @@ export function useHfDownload({
               samePath(form.targetDir, next.target_dir)
             ) {
               await refreshHfPartialDownload();
+            } else {
+              await refreshPartialForItem(next);
             }
             continue;
           }
@@ -289,6 +312,8 @@ export function useHfDownload({
             samePath(form.targetDir, next.target_dir)
           ) {
             await refreshHfPartialDownload();
+          } else {
+            await refreshPartialForItem(next);
           }
         } finally {
           setHfProgress(null);
@@ -306,10 +331,10 @@ export function useHfDownload({
         if (completed) {
           showToastRef.current("Queued downloads finished", "success");
         }
-        syncQueue((prev) => prev.filter((item) => item.status === "pending"));
+        syncQueue((prev) => prev.filter((item) => item.status !== "complete"));
       }
     }
-  }, [recordCompletedDownload, refreshHfPartialDownload, syncQueue]);
+  }, [recordCompletedDownload, refreshHfPartialDownload, refreshPartialForItem, syncQueue]);
 
   useEffect(() => {
     processDownloadQueueRef.current = processDownloadQueue;
@@ -322,6 +347,24 @@ export function useHfDownload({
       kickDownloadQueue();
     }
   }, [pendingCount, kickDownloadQueue]);
+
+  const retryQueuedDownload = useCallback(
+    (id: string) => {
+      const item = downloadQueueRef.current.find((entry) => entry.id === id);
+      if (!item || (item.status !== "error" && item.status !== "cancelled")) {
+        return;
+      }
+
+      syncQueue((prev) =>
+        prev.map((entry) =>
+          entry.id === id ? { ...entry, status: "pending" as const, error: undefined } : entry,
+        ),
+      );
+      void refreshPartialForItem(item);
+      kickDownloadQueue();
+    },
+    [kickDownloadQueue, refreshPartialForItem, syncQueue],
+  );
 
   const enqueueHfDownload = useCallback(() => {
     if (!hfRepo.trim()) {
@@ -345,6 +388,24 @@ export function useHfDownload({
     );
     if (duplicate) {
       showToast("That download is already queued", "error");
+      return;
+    }
+
+    const retriable = downloadQueueRef.current.find(
+      (item) =>
+        queueItemKey(item.repo, item.file_path, item.target_dir) === key &&
+        (item.status === "error" || item.status === "cancelled"),
+    );
+    if (retriable) {
+      syncQueue((prev) =>
+        prev.map((item) =>
+          item.id === retriable.id
+            ? { ...item, status: "pending" as const, error: undefined }
+            : item,
+        ),
+      );
+      showToast("Resuming download", "success");
+      kickDownloadQueue();
       return;
     }
 
@@ -378,9 +439,7 @@ export function useHfDownload({
   );
 
   const clearFinishedQueue = useCallback(() => {
-    syncQueue((prev) =>
-      prev.filter((item) => item.status === "pending" || item.status === "downloading"),
-    );
+    syncQueue((prev) => prev.filter((item) => item.status !== "complete"));
   }, [syncQueue]);
 
   const browseHfTargetDir = useCallback(async () => {
@@ -452,7 +511,16 @@ export function useHfDownload({
   const hfQueueActive = downloadQueue.some(
     (item) => item.status === "pending" || item.status === "downloading",
   );
-  const canResume = Boolean(hfPartialDownload && !hfDownloading);
+  const currentSelectionKey = canCheckPartial
+    ? queueItemKey(hfRepo, hfSelectedFile, hfTargetDir)
+    : "";
+  const hasRetriableInQueue = downloadQueue.some(
+    (item) =>
+      (item.status === "error" || item.status === "cancelled") &&
+      (!currentSelectionKey ||
+        queueItemKey(item.repo, item.file_path, item.target_dir) === currentSelectionKey),
+  );
+  const canResume = Boolean((hfPartialDownload || hasRetriableInQueue) && !hfDownloading);
 
   return {
     hfRepo,
@@ -476,6 +544,7 @@ export function useHfDownload({
     enqueueHfDownload,
     removeQueuedDownload,
     clearFinishedQueue,
+    retryQueuedDownload,
     cancelHfDownload,
     discardHfPartial,
     clearDownloadHistory,

@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    Arc, OnceLock,
 };
 use std::time::{Duration, Instant};
 use tauri::{Emitter, State};
@@ -15,8 +15,14 @@ use crate::bindings::{
     HfDownloadConfig, HfDownloadProgress, HfDownloadStatus, HfGgufFile, HfPartialDownload,
 };
 
+const DOWNLOAD_WRITE_BUFFER_BYTES: usize = 1024 * 1024;
+const PROGRESS_EMIT_INTERVAL: Duration = Duration::from_millis(500);
+const PROGRESS_EMIT_BYTES: u64 = 1024 * 1024;
+const DEFAULT_HF_REVISION: &str = "main";
+
 #[derive(Debug, Deserialize)]
 struct HfRepoInfo {
+    #[allow(dead_code)]
     sha: String,
     siblings: Vec<HfSibling>,
 }
@@ -128,30 +134,36 @@ pub fn safe_filename(path: &str) -> Result<String, String> {
     Ok(filename)
 }
 
-fn hf_client(token: Option<&str>) -> Result<reqwest::Client, String> {
-    let mut headers = reqwest::header::HeaderMap::new();
+fn shared_hf_client() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .user_agent("LLama C++ Launcher/1.0.6")
+            .pool_max_idle_per_host(4)
+            .tcp_keepalive(Duration::from_secs(60))
+            .build()
+            .expect("failed to build Hugging Face HTTP client")
+    })
+}
+
+fn hf_get(url: String, token: Option<&str>) -> reqwest::RequestBuilder {
+    let client = shared_hf_client();
+    let mut request = client.get(url);
     if let Some(token) = token {
         let token = token.trim();
         if !token.is_empty() {
-            let value = format!("Bearer {}", token)
-                .parse()
-                .map_err(|_| "Invalid Hugging Face token".to_string())?;
-            headers.insert(reqwest::header::AUTHORIZATION, value);
+            request = request.header(
+                reqwest::header::AUTHORIZATION,
+                format!("Bearer {}", token),
+            );
         }
     }
-
-    reqwest::Client::builder()
-        .user_agent("LLama C++ Launcher/1.0")
-        .default_headers(headers)
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))
+    request
 }
 
 async fn fetch_hf_repo_info(repo: &str, token: Option<&str>) -> Result<HfRepoInfo, String> {
     let url = format!("https://huggingface.co/api/models/{}?blobs=true", repo);
-    let client = hf_client(token)?;
-    let response = client
-        .get(url)
+    let response = hf_get(url, token)
         .send()
         .await
         .map_err(|e| format!("Failed to contact Hugging Face: {}", e))?;
@@ -223,11 +235,18 @@ fn emit_download_progress(
     app_handle: &tauri::AppHandle,
     progress: HfDownloadProgress,
     last_emit: &mut Instant,
+    last_emitted_bytes: &mut u64,
     force: bool,
 ) {
-    if force || last_emit.elapsed() >= Duration::from_millis(250) {
+    let bytes_delta = progress.downloaded_bytes.saturating_sub(*last_emitted_bytes);
+    if force
+        || last_emit.elapsed() >= PROGRESS_EMIT_INTERVAL
+        || bytes_delta >= PROGRESS_EMIT_BYTES
+    {
+        let downloaded_bytes = progress.downloaded_bytes;
         let _ = app_handle.emit("hf-download-progress", progress);
         *last_emit = Instant::now();
+        *last_emitted_bytes = downloaded_bytes;
     }
 }
 
@@ -241,7 +260,7 @@ fn read_partial_metadata(part_path: &Path) -> Option<HfPartialMetadata> {
 }
 
 fn write_partial_metadata(part_path: &Path, metadata: &HfPartialMetadata) -> Result<(), String> {
-    let json = serde_json::to_string_pretty(metadata)
+    let json = serde_json::to_string(metadata)
         .map_err(|e| format!("Failed to serialize download metadata: {}", e))?;
     fs::write(part_meta_path(part_path), json)
         .map_err(|e| format!("Failed to write download metadata: {}", e))
@@ -252,8 +271,13 @@ fn remove_partial_artifacts(part_path: &Path) {
     let _ = fs::remove_file(part_meta_path(part_path));
 }
 
+fn partial_metadata_matches(meta: &HfPartialMetadata, repo: &str, file_path: &str) -> bool {
+    meta.repo == repo && meta.file_path == file_path
+}
+
+#[allow(dead_code)]
 fn metadata_matches(meta: &HfPartialMetadata, repo: &str, file_path: &str, revision: &str) -> bool {
-    meta.repo == repo && meta.file_path == file_path && meta.revision == revision
+    partial_metadata_matches(meta, repo, file_path) && meta.revision == revision
 }
 
 fn parse_content_range_total(headers: &reqwest::header::HeaderMap) -> Option<u64> {
@@ -269,7 +293,7 @@ fn part_file_size(part_path: &Path) -> u64 {
     fs::metadata(part_path).map(|meta| meta.len()).unwrap_or(0)
 }
 
-fn prepare_partial_download(part_path: &Path, repo: &str, file_path: &str, revision: &str) -> u64 {
+fn prepare_partial_download(part_path: &Path, repo: &str, file_path: &str) -> u64 {
     if !part_path.exists() {
         return 0;
     }
@@ -281,7 +305,7 @@ fn prepare_partial_download(part_path: &Path, repo: &str, file_path: &str, revis
     }
 
     match read_partial_metadata(part_path) {
-        Some(meta) if metadata_matches(&meta, repo, file_path, revision) => resume_from,
+        Some(meta) if partial_metadata_matches(&meta, repo, file_path) => resume_from,
         _ => {
             remove_partial_artifacts(part_path);
             0
@@ -303,6 +327,7 @@ pub async fn get_hf_partial_download(
     target_dir: String,
     token: Option<String>,
 ) -> Result<Option<HfPartialDownload>, String> {
+    let _ = token;
     let repo = validate_hf_repo(&repo)?;
     let filename = safe_filename(&file_path)?;
     let target_dir = PathBuf::from(&target_dir);
@@ -321,9 +346,8 @@ pub async fn get_hf_partial_download(
         return Ok(None);
     }
 
-    let repo_info = fetch_hf_repo_info(&repo, token.as_deref()).await?;
     let meta = match read_partial_metadata(&part_path) {
-        Some(meta) if metadata_matches(&meta, &repo, &file_path, &repo_info.sha) => meta,
+        Some(meta) if partial_metadata_matches(&meta, &repo, &file_path) => meta,
         _ => return Ok(None),
     };
 
@@ -363,9 +387,13 @@ pub async fn download_hf_model(
     }
     let part_path = target_dir.join(format!("{}.part", filename));
 
-    let repo_info = fetch_hf_repo_info(&repo, config.token.as_deref()).await?;
-    let revision = repo_info.sha;
-    let resume_from = prepare_partial_download(&part_path, &repo, &config.file_path, &revision);
+    let existing_meta = read_partial_metadata(&part_path);
+    let revision = existing_meta
+        .as_ref()
+        .filter(|meta| partial_metadata_matches(meta, &repo, &config.file_path))
+        .map(|meta| meta.revision.clone())
+        .unwrap_or_else(|| DEFAULT_HF_REVISION.to_string());
+    let resume_from = prepare_partial_download(&part_path, &repo, &config.file_path);
 
     let cancel_flag = Arc::new(AtomicBool::new(false));
     {
@@ -383,10 +411,8 @@ pub async fn download_hf_model(
             revision,
             percent_encode_path(&config.file_path)
         );
-        let client = hf_client(config.token.as_deref())?;
         let target_string = target_path.to_string_lossy().to_string();
 
-        let existing_meta = read_partial_metadata(&part_path);
         let mut metadata = HfPartialMetadata {
             repo: repo.clone(),
             file_path: config.file_path.clone(),
@@ -398,6 +424,7 @@ pub async fn download_hf_model(
             if let Some(total_bytes) = metadata.total_bytes {
                 if resume_from >= total_bytes {
                     finalize_download(&part_path, &target_path)?;
+                    let mut last_emitted_bytes = total_bytes;
                     emit_download_progress(
                         &app_handle,
                         HfDownloadProgress {
@@ -410,6 +437,7 @@ pub async fn download_hf_model(
                             error: None,
                         },
                         &mut Instant::now(),
+                        &mut last_emitted_bytes,
                         true,
                     );
                     return Ok(target_string);
@@ -419,7 +447,7 @@ pub async fn download_hf_model(
             write_partial_metadata(&part_path, &metadata)?;
         }
 
-        let mut request = client.get(&file_url);
+        let mut request = hf_get(file_url, config.token.as_deref());
         if resume_from > 0 {
             request = request.header(reqwest::header::RANGE, format!("bytes={}-", resume_from));
         }
@@ -458,7 +486,7 @@ pub async fn download_hf_model(
                 }
             });
 
-        let mut file = if status == reqwest::StatusCode::PARTIAL_CONTENT {
+        let raw_file = if status == reqwest::StatusCode::PARTIAL_CONTENT {
             OpenOptions::new()
                 .create(true)
                 .append(true)
@@ -478,14 +506,10 @@ pub async fn download_hf_model(
                 .map_err(|e| format!("Failed to create download file: {}", e))?
         };
 
-        if total_bytes.is_none() {
-            metadata.total_bytes = None;
-        } else {
-            metadata.total_bytes = total_bytes;
-            write_partial_metadata(&part_path, &metadata)?;
-        }
+        let mut file = BufWriter::with_capacity(DOWNLOAD_WRITE_BUFFER_BYTES, raw_file);
 
         let mut last_emit = Instant::now();
+        let mut last_emitted_bytes = downloaded_bytes;
         emit_download_progress(
             &app_handle,
             HfDownloadProgress {
@@ -498,6 +522,7 @@ pub async fn download_hf_model(
                 error: None,
             },
             &mut last_emit,
+            &mut last_emitted_bytes,
             true,
         );
 
@@ -507,6 +532,8 @@ pub async fn download_hf_model(
             .map_err(|e| format!("Failed while downloading: {}", e))?
         {
             if cancel_flag.load(Ordering::Relaxed) {
+                file.flush()
+                    .map_err(|e| format!("Failed to flush partial download: {}", e))?;
                 drop(file);
                 write_partial_metadata(&part_path, &metadata)?;
                 emit_download_progress(
@@ -521,6 +548,7 @@ pub async fn download_hf_model(
                         error: None,
                     },
                     &mut last_emit,
+                    &mut last_emitted_bytes,
                     true,
                 );
                 return Err("Download cancelled".into());
@@ -541,6 +569,7 @@ pub async fn download_hf_model(
                     error: None,
                 },
                 &mut last_emit,
+                &mut last_emitted_bytes,
                 false,
             );
         }
@@ -561,6 +590,7 @@ pub async fn download_hf_model(
                 error: None,
             },
             &mut last_emit,
+            &mut last_emitted_bytes,
             true,
         );
 

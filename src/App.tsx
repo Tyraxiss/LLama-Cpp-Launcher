@@ -204,6 +204,7 @@ function App() {
       onBrowseTargetDir={hf.browseHfTargetDir}
       onEnqueueDownload={hf.enqueueHfDownload}
       onRemoveQueued={hf.removeQueuedDownload}
+      onRetryQueued={hf.retryQueuedDownload}
       onClearFinishedQueue={hf.clearFinishedQueue}
       onCancelDownload={hf.cancelHfDownload}
       onDiscardPartial={hf.discardHfPartial}

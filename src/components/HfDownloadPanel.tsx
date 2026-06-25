@@ -5,6 +5,7 @@ import {
   FolderOpen,
   KeyRound,
   Loader,
+  RefreshCw,
   Search,
   Trash2,
   X,
@@ -38,6 +39,7 @@ interface HfDownloadPanelProps {
   onBrowseTargetDir: () => void;
   onEnqueueDownload: () => void;
   onRemoveQueued: (id: string) => void;
+  onRetryQueued: (id: string) => void;
   onClearFinishedQueue: () => void;
   onCancelDownload: () => void;
   onDiscardPartial: () => void;
@@ -80,6 +82,7 @@ export function HfDownloadPanel({
   onBrowseTargetDir,
   onEnqueueDownload,
   onRemoveQueued,
+  onRetryQueued,
   onClearFinishedQueue,
   onCancelDownload,
   onDiscardPartial,
@@ -119,14 +122,14 @@ export function HfDownloadPanel({
   const queueActive = queue.some(
     (item) => item.status === "pending" || item.status === "downloading",
   );
-  const finishedCount = queue.filter(
-    (item) => item.status === "complete" || item.status === "error" || item.status === "cancelled",
-  ).length;
-  const primaryLabel = queueActive
-    ? "Add to Queue"
+  const finishedCount = queue.filter((item) => item.status === "complete").length;
+  const primaryLabel = downloading
+    ? "Downloading..."
     : canResume
       ? "Resume Download"
-      : "Download Model";
+      : queueActive
+        ? "Add to Queue"
+        : "Download Model";
 
   return (
     <div className="card">
@@ -297,6 +300,16 @@ export function HfDownloadPanel({
                   >
                     <Trash2 size={11} />
                     Remove
+                  </button>
+                )}
+                {(item.status === "error" || item.status === "cancelled") && (
+                  <button
+                    className="btn btn-sm btn-success"
+                    onClick={() => onRetryQueued(item.id)}
+                    title="Resume this download"
+                  >
+                    <RefreshCw size={11} />
+                    Resume
                   </button>
                 )}
               </div>

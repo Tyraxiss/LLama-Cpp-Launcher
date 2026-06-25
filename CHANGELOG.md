@@ -2,6 +2,18 @@
 
 All notable changes to LLama C++ Launcher are documented here.
 
+## [1.0.6] - 2026-06-25
+
+### Fixed
+
+- **Hugging Face download resume**: failed or paused queue items now have a **Resume** button; partial downloads are detected from local files without requiring Hugging Face to be online.
+- **Resume Download** button shows when a partial file exists or the selected model has a retriable queue entry; re-queuing retries the same item instead of duplicating it.
+- Failed/paused queue items stay visible until resumed or cleared (no longer wiped on worker exit).
+
+### Changed
+
+- **Faster HF downloads**: restored direct `resolve/main` URLs (no mandatory pre-download API call), 1 MB buffered disk writes, shared HTTP connection pool, and less frequent progress IPC.
+
 ## [1.0.5] - 2026-06-08
 
 ### Fixed
