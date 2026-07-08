@@ -47,6 +47,8 @@ export function ServerSettingsPanel({
           ? "Error"
           : "Stopped";
 
+  const settingsLocked = isRunning;
+
   return (
     <>
       <div className="card">
@@ -54,6 +56,12 @@ export function ServerSettingsPanel({
           <SlidersHorizontal size={14} className="icon" />
           <h3>Server Settings</h3>
         </div>
+
+        {settingsLocked && (
+          <p className="text-muted" style={{ fontSize: 11, marginBottom: 8 }}>
+            Stop the server to change settings.
+          </p>
+        )}
 
         <div className="form-row">
           <span className="form-label">Context Length</span>
@@ -64,6 +72,7 @@ export function ServerSettingsPanel({
             min={256}
             max={131072}
             step={256}
+            disabled={settingsLocked}
             onChange={(e) => onChange({ ctxSize: Number(e.target.value) || 2048 })}
           />
         </div>
@@ -76,6 +85,7 @@ export function ServerSettingsPanel({
             value={port}
             min={1024}
             max={65535}
+            disabled={settingsLocked}
             onChange={(e) => onChange({ port: Number(e.target.value) || 8080 })}
           />
         </div>
@@ -86,6 +96,7 @@ export function ServerSettingsPanel({
             type="text"
             className="form-input"
             value={host}
+            disabled={settingsLocked}
             onChange={(e) => onChange({ host: e.target.value || "127.0.0.1" })}
           />
         </div>
@@ -99,6 +110,7 @@ export function ServerSettingsPanel({
               max={2}
               step={0.05}
               value={temp}
+              disabled={settingsLocked}
               onChange={(e) => onChange({ temp: Number(e.target.value) })}
             />
             <span style={{ width: 30, textAlign: "right", fontSize: 12, fontWeight: 600 }}>
@@ -115,6 +127,7 @@ export function ServerSettingsPanel({
             value={ngl}
             min={0}
             max={999}
+            disabled={settingsLocked}
             onChange={(e) => onChange({ ngl: Number(e.target.value) || 0 })}
           />
           <span className="text-muted" style={{ fontSize: 10 }}>
@@ -127,6 +140,7 @@ export function ServerSettingsPanel({
           <select
             className="form-input small"
             value={mainGpu ?? ""}
+            disabled={settingsLocked}
             onChange={(e) =>
               onChange({ mainGpu: e.target.value === "" ? null : Number(e.target.value) })
             }
@@ -146,6 +160,7 @@ export function ServerSettingsPanel({
             className="form-input small"
             placeholder="e.g. 0.6,0.4"
             value={tensorSplit ?? ""}
+            disabled={settingsLocked}
             onChange={(e) => onChange({ tensorSplit: e.target.value || null })}
           />
           <span className="text-muted" style={{ fontSize: 10 }}>
@@ -159,6 +174,7 @@ export function ServerSettingsPanel({
             <input
               type="checkbox"
               checked={noMmap}
+              disabled={settingsLocked}
               onChange={(e) => onChange({ noMmap: e.target.checked })}
             />
             <span className="toggle-slider" />
@@ -171,6 +187,7 @@ export function ServerSettingsPanel({
             <input
               type="checkbox"
               checked={noWebui}
+              disabled={settingsLocked}
               onChange={(e) => onChange({ noWebui: e.target.checked })}
             />
             <span className="toggle-slider" />
@@ -185,6 +202,7 @@ export function ServerSettingsPanel({
             value={threads}
             min={0}
             max={256}
+            disabled={settingsLocked}
             onChange={(e) => onChange({ threads: Number(e.target.value) || 0 })}
           />
           <span className="text-muted" style={{ fontSize: 10 }}>
@@ -201,6 +219,7 @@ export function ServerSettingsPanel({
             min={64}
             max={4096}
             step={64}
+            disabled={settingsLocked}
             onChange={(e) => onChange({ batchSize: Number(e.target.value) || 512 })}
           />
         </div>
@@ -214,6 +233,7 @@ export function ServerSettingsPanel({
               max={1}
               step={0.01}
               value={topP}
+              disabled={settingsLocked}
               onChange={(e) => onChange({ topP: Number(e.target.value) })}
             />
             <span style={{ width: 30, textAlign: "right", fontSize: 12, fontWeight: 600 }}>
@@ -230,6 +250,7 @@ export function ServerSettingsPanel({
             value={topK}
             min={1}
             max={200}
+            disabled={settingsLocked}
             onChange={(e) => onChange({ topK: Number(e.target.value) || 40 })}
           />
         </div>
@@ -243,6 +264,7 @@ export function ServerSettingsPanel({
               max={0.2}
               step={0.01}
               value={minP}
+              disabled={settingsLocked}
               onChange={(e) => onChange({ minP: Number(e.target.value) })}
             />
             <span style={{ width: 30, textAlign: "right", fontSize: 12, fontWeight: 600 }}>
@@ -260,6 +282,7 @@ export function ServerSettingsPanel({
               max={2}
               step={0.01}
               value={repeatPenalty}
+              disabled={settingsLocked}
               onChange={(e) => onChange({ repeatPenalty: Number(e.target.value) })}
             />
             <span style={{ width: 30, textAlign: "right", fontSize: 12, fontWeight: 600 }}>
@@ -277,6 +300,7 @@ export function ServerSettingsPanel({
               max={2}
               step={0.05}
               value={presencePenalty}
+              disabled={settingsLocked}
               onChange={(e) => onChange({ presencePenalty: Number(e.target.value) })}
             />
             <span style={{ width: 30, textAlign: "right", fontSize: 12, fontWeight: 600 }}>
@@ -291,6 +315,7 @@ export function ServerSettingsPanel({
             <input
               type="checkbox"
               checked={flashAttn}
+              disabled={settingsLocked}
               onChange={(e) => onChange({ flashAttn: e.target.checked })}
             />
             <span className="toggle-slider" />

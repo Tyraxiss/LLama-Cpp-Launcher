@@ -17,7 +17,7 @@ import { useToast } from "./hooks/useToast";
 import { PRESETS } from "./presets";
 import { THEME_OPTIONS, type ThemeId } from "./themes";
 import type { ServerSettings } from "./types";
-import { buildConfigSnapshot, formatBytes, samePath } from "./utils/config";
+import { formatBytes, samePath } from "./utils/config";
 import {
   Zap,
   Play,
@@ -67,14 +67,16 @@ function App() {
     setOpenWebuiPort,
     saveAppConfig,
     buildCurrentConfig,
-  } = usePersistedConfig();
+  } = usePersistedConfig({
+    onSaveError: () => showToast("Failed to save settings", "error"),
+  });
 
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"server" | "downloads" | "help">("server");
   const resourceStats = useResourceStats();
 
   const hf = useHfDownload({
-    config,
+    buildCurrentConfig,
     saveAppConfig,
     setModels,
     setMmprojs,
@@ -86,6 +88,7 @@ function App() {
   const modelLibrary = useModelLibrary({
     config,
     mmprojs,
+    buildCurrentConfig,
     saveAppConfig,
     setModels,
     setMmprojs,
@@ -111,6 +114,7 @@ function App() {
     openWebuiHost,
     openWebuiPort,
     serverSettings,
+    isLlamaRunning: server.isRunning,
     buildCurrentConfig,
     saveAppConfig,
     showToast,
@@ -124,7 +128,7 @@ function App() {
     });
     if (selected && typeof selected === "string") {
       setExePath(selected);
-      await saveAppConfig({ ...config, exe_path: selected });
+      await saveAppConfig(buildCurrentConfig(undefined, { exePath: selected }));
     }
   };
 
@@ -136,7 +140,7 @@ function App() {
     });
     if (selected && typeof selected === "string") {
       setOpenWebuiVenvPath(selected);
-      await saveAppConfig({ ...config, open_webui_venv_path: selected });
+      await saveAppConfig(buildCurrentConfig(undefined, { openWebui: { venvPath: selected } }));
     }
   };
 
@@ -162,13 +166,13 @@ function App() {
     };
     setServerSettings(nextSettings);
     setSelectedPreset(key);
-    await saveAppConfig(buildConfigSnapshot(config, { server: nextSettings }));
+    await saveAppConfig(buildCurrentConfig(undefined, { server: nextSettings }));
     showToast(`${preset.name} preset applied`, "success");
   };
 
   const handleThemeChange = async (nextTheme: ThemeId) => {
     setTheme(nextTheme);
-    await saveAppConfig({ ...config, last_theme: nextTheme });
+    await saveAppConfig(buildCurrentConfig(undefined, { theme: nextTheme }));
   };
 
   const totalModelBytes = models.reduce((sum, model) => sum + model.size_bytes, 0);

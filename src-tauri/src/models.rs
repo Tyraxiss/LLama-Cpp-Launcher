@@ -84,6 +84,7 @@ fn scan_dir_recursive(
     }
 }
 
+// Keep scoring logic in sync with suggestMmprojPath in src/utils/config.ts.
 pub fn suggest_mmproj_for_model(model_path: &str, mmprojs: &[ModelInfo]) -> Option<String> {
     let model_path = Path::new(model_path);
     let model_dir = model_path.parent()?;

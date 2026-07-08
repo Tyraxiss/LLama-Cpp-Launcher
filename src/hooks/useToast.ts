@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type ToastType = "success" | "error";
 
@@ -9,10 +9,25 @@ export interface ToastState {
 
 export function useToast() {
   const [toast, setToast] = useState<ToastState | null>(null);
+  const timeoutRef = useRef<number | null>(null);
 
   const showToast = useCallback((msg: string, type: ToastType) => {
+    if (timeoutRef.current !== null) {
+      window.clearTimeout(timeoutRef.current);
+    }
     setToast({ msg, type });
-    window.setTimeout(() => setToast(null), 3000);
+    timeoutRef.current = window.setTimeout(() => {
+      setToast(null);
+      timeoutRef.current = null;
+    }, 3000);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current !== null) {
+        window.clearTimeout(timeoutRef.current);
+      }
+    };
   }, []);
 
   return { toast, showToast };

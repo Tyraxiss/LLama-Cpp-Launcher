@@ -32,8 +32,14 @@ export function useLlamaServer({
   const [logExpanded, setLogExpanded] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
   const healthInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const healthPollSeq = useRef(0);
   const startupDeadline = useRef<number | null>(null);
   const stoppingServer = useRef(false);
+  const serverSettingsRef = useRef(serverSettings);
+
+  useEffect(() => {
+    serverSettingsRef.current = serverSettings;
+  }, [serverSettings]);
 
   useEffect(() => {
     const unlisten = listen<string>("server-stderr", (event) => {
@@ -63,6 +69,41 @@ export function useLlamaServer({
   }, [showToast]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const reconcile = async () => {
+      const { host, port } = serverSettingsRef.current;
+      try {
+        const logs = (await invoke("get_server_log")) as string[];
+        if (!cancelled && logs.length > 0) {
+          setServerLog(logs);
+        }
+      } catch {
+        // No log buffer available
+      }
+
+      try {
+        const status = await invoke("check_server_health", { host, port });
+        if (
+          !cancelled &&
+          (status === "healthy" || status === "running")
+        ) {
+          setIsRunning(true);
+          setServerStatus("running");
+        }
+      } catch {
+        // Server not reachable
+      }
+    };
+
+    void reconcile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (logExpanded && logEndRef.current) {
       logEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
@@ -74,14 +115,17 @@ export function useLlamaServer({
         clearInterval(healthInterval.current);
       }
       const pollHealth = async () => {
+        const seq = ++healthPollSeq.current;
         try {
           const status = await invoke("check_server_health", {
             host: serverSettings.host,
             port: serverSettings.port,
           });
+          if (seq !== healthPollSeq.current) return;
           setServerStatus(status === "healthy" || status === "running" ? "running" : "error");
           startupDeadline.current = null;
         } catch {
+          if (seq !== healthPollSeq.current) return;
           if (startupDeadline.current && Date.now() < startupDeadline.current) {
             setServerStatus("starting");
           } else {
@@ -91,11 +135,15 @@ export function useLlamaServer({
       };
       void pollHealth();
       healthInterval.current = setInterval(pollHealth, 3000);
-    } else if (healthInterval.current) {
-      clearInterval(healthInterval.current);
-      healthInterval.current = null;
+    } else {
+      healthPollSeq.current += 1;
+      if (healthInterval.current) {
+        clearInterval(healthInterval.current);
+        healthInterval.current = null;
+      }
     }
     return () => {
+      healthPollSeq.current += 1;
       if (healthInterval.current) clearInterval(healthInterval.current);
     };
   }, [isRunning, serverSettings.host, serverSettings.port]);

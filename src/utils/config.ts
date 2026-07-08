@@ -104,26 +104,6 @@ export function suggestMmprojPath(modelPath: string, mmprojs: ModelInfo[]): stri
   return best.path;
 }
 
-export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
-  ctxSize: 8192,
-  port: 8080,
-  host: "127.0.0.1",
-  ngl: 99,
-  temp: 0.7,
-  threads: 0,
-  batchSize: 512,
-  topP: 0.9,
-  topK: 40,
-  minP: 0.05,
-  repeatPenalty: 1.1,
-  presencePenalty: 0.0,
-  flashAttn: false,
-  mainGpu: null,
-  tensorSplit: null,
-  noMmap: false,
-  noWebui: false,
-};
-
 export function serverSettingsFromConfig(cfg: AppConfig): ServerSettings {
   return {
     ctxSize: cfg.last_ctx_size ?? 8192,

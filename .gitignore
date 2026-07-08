@@ -13,3 +13,4 @@ src-tauri/gen/
 
 .env
 .env.*
+*.tsbuildinfo

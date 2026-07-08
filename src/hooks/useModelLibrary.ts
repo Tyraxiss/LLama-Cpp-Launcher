@@ -8,6 +8,12 @@ import type { ToastType } from "./useToast";
 interface UseModelLibraryOptions {
   config: AppConfig;
   mmprojs: ModelInfo[];
+  buildCurrentConfig: (
+    base?: AppConfig,
+    overrides?: Parameters<
+      typeof import("../utils/config").buildConfigSnapshot
+    >[1] & { model_directories?: string[] },
+  ) => AppConfig;
   saveAppConfig: (cfg: AppConfig) => Promise<void>;
   setModels: (models: ModelInfo[]) => void;
   setMmprojs: (mmprojs: ModelInfo[]) => void;
@@ -25,6 +31,7 @@ async function scanModelLibrary(directories: string[]): Promise<ModelScanResult>
 export function useModelLibrary({
   config,
   mmprojs,
+  buildCurrentConfig,
   saveAppConfig,
   setModels,
   setMmprojs,
@@ -48,13 +55,14 @@ export function useModelLibrary({
     async (path: string, mmprojList: ModelInfo[]) => {
       const nextMmproj = suggestMmprojPath(path, mmprojList);
       setMmprojPath(nextMmproj ?? "");
-      await saveAppConfig({
-        ...config,
-        last_model: path,
-        last_mmproj: nextMmproj ?? null,
-      });
+      await saveAppConfig(
+        buildCurrentConfig(undefined, {
+          modelPath: path,
+          mmprojPath: nextMmproj ?? null,
+        }),
+      );
     },
-    [config, saveAppConfig, setMmprojPath],
+    [buildCurrentConfig, saveAppConfig, setMmprojPath],
   );
 
   const rescanModels = useCallback(async () => {
@@ -80,7 +88,7 @@ export function useModelLibrary({
     if (selected && typeof selected === "string") {
       if (config.model_directories.some((dir) => samePath(dir, selected))) return;
       const dirs = [...config.model_directories, selected];
-      await saveAppConfig({ ...config, model_directories: dirs });
+      await saveAppConfig(buildCurrentConfig(undefined, { model_directories: dirs }));
       try {
         setScanInProgress(true);
         const scan = await scanModelLibrary(dirs);
@@ -91,12 +99,12 @@ export function useModelLibrary({
         setScanInProgress(false);
       }
     }
-  }, [applyScanResult, config, saveAppConfig, showToast]);
+  }, [applyScanResult, buildCurrentConfig, config.model_directories, saveAppConfig, showToast]);
 
   const removeModelDirectory = useCallback(
     async (dir: string) => {
-      const dirs = config.model_directories.filter((d) => d !== dir);
-      await saveAppConfig({ ...config, model_directories: dirs });
+      const dirs = config.model_directories.filter((d) => !samePath(d, dir));
+      await saveAppConfig(buildCurrentConfig(undefined, { model_directories: dirs }));
       if (samePath(hfTargetDir, dir)) {
         setHfTargetDir(dirs[0] ?? "");
       }
@@ -110,7 +118,7 @@ export function useModelLibrary({
         setScanInProgress(false);
       }
     },
-    [applyScanResult, config, hfTargetDir, saveAppConfig, setHfTargetDir],
+    [applyScanResult, buildCurrentConfig, config.model_directories, hfTargetDir, saveAppConfig, setHfTargetDir],
   );
 
   const pickModel = useCallback(async () => {
@@ -140,9 +148,9 @@ export function useModelLibrary({
     });
     if (selected && typeof selected === "string") {
       setMmprojPath(selected);
-      await saveAppConfig({ ...config, last_mmproj: selected });
+      await saveAppConfig(buildCurrentConfig(undefined, { mmprojPath: selected }));
     }
-  }, [config, saveAppConfig, setMmprojPath]);
+  }, [buildCurrentConfig, saveAppConfig, setMmprojPath]);
 
   const handleModelSelect = useCallback(
     async (path: string) => {
@@ -155,9 +163,9 @@ export function useModelLibrary({
   const handleMmprojSelect = useCallback(
     async (path: string) => {
       setMmprojPath(path);
-      await saveAppConfig({ ...config, last_mmproj: path || null });
+      await saveAppConfig(buildCurrentConfig(undefined, { mmprojPath: path || null }));
     },
-    [config, saveAppConfig, setMmprojPath],
+    [buildCurrentConfig, saveAppConfig, setMmprojPath],
   );
 
   useEffect(() => {

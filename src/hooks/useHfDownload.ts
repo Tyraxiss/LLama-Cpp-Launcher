@@ -22,7 +22,12 @@ import {
 import type { ToastType } from "./useToast";
 
 interface UseHfDownloadOptions {
-  config: AppConfig;
+  buildCurrentConfig: (
+    base?: AppConfig,
+    overrides?: Parameters<
+      typeof import("../utils/config").buildConfigSnapshot
+    >[1] & { model_directories?: string[] },
+  ) => AppConfig;
   saveAppConfig: (cfg: AppConfig) => Promise<void>;
   setModels: (models: ModelInfo[]) => void;
   setMmprojs: (mmprojs: ModelInfo[]) => void;
@@ -54,7 +59,7 @@ function createQueueItem(
 }
 
 export function useHfDownload({
-  config,
+  buildCurrentConfig,
   saveAppConfig,
   setModels,
   setMmprojs,
@@ -75,7 +80,7 @@ export function useHfDownload({
   const [downloadHistory, setDownloadHistory] =
     useState<DownloadHistoryItem[]>(loadDownloadHistory);
 
-  const configRef = useRef(config);
+  const buildCurrentConfigRef = useRef(buildCurrentConfig);
   const saveAppConfigRef = useRef(saveAppConfig);
   const setModelsRef = useRef(setModels);
   const setMmprojsRef = useRef(setMmprojs);
@@ -88,14 +93,14 @@ export function useHfDownload({
   const processDownloadQueueRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
-    configRef.current = config;
+    buildCurrentConfigRef.current = buildCurrentConfig;
     saveAppConfigRef.current = saveAppConfig;
     setModelsRef.current = setModels;
     setMmprojsRef.current = setMmprojs;
     setModelPathRef.current = setModelPath;
     setMmprojPathRef.current = setMmprojPath;
     showToastRef.current = showToast;
-  }, [config, saveAppConfig, setModels, setMmprojs, setModelPath, setMmprojPath, showToast]);
+  }, [buildCurrentConfig, saveAppConfig, setModels, setMmprojs, setModelPath, setMmprojPath, showToast]);
 
   useEffect(() => {
     hfFormRef.current = {
@@ -211,7 +216,7 @@ export function useHfDownload({
 
   const recordCompletedDownload = useCallback(
     async (item: HfDownloadQueueItem, downloadedPath: string) => {
-      const cfg = configRef.current;
+      const cfg = buildCurrentConfigRef.current();
       const dirs = cfg.model_directories.some((dir) => samePath(dir, item.target_dir))
         ? cfg.model_directories
         : [...cfg.model_directories, item.target_dir];
@@ -237,12 +242,13 @@ export function useHfDownload({
         }
       }
 
-      await saveAppConfigRef.current({
-        ...cfg,
-        model_directories: dirs,
-        last_model: nextModel ?? null,
-        last_mmproj: nextMmproj ?? null,
-      });
+      await saveAppConfigRef.current(
+        buildCurrentConfigRef.current(undefined, {
+          model_directories: dirs,
+          modelPath: nextModel ?? undefined,
+          mmprojPath: nextMmproj ?? null,
+        }),
+      );
 
       setDownloadHistory((prev) => {
         const nextHistory = [
@@ -307,7 +313,15 @@ export function useHfDownload({
                 : item,
             ),
           );
-          await recordCompletedDownload(next, downloadedPath);
+
+          try {
+            await recordCompletedDownload(next, downloadedPath);
+          } catch (error) {
+            showToastRef.current(
+              `Downloaded but failed to update model library: ${String(error)}`,
+              "error",
+            );
+          }
 
           if (
             queueItemKey(form.repo, form.selectedFile, form.targetDir) ===
@@ -485,12 +499,15 @@ export function useHfDownload({
     });
     if (selected && typeof selected === "string") {
       setHfTargetDir(selected);
-      if (!config.model_directories.some((dir) => samePath(dir, selected))) {
-        const dirs = [...config.model_directories, selected];
-        await saveAppConfig({ ...config, model_directories: dirs });
+      const cfg = buildCurrentConfigRef.current();
+      if (!cfg.model_directories.some((dir) => samePath(dir, selected))) {
+        const dirs = [...cfg.model_directories, selected];
+        await saveAppConfigRef.current(
+          buildCurrentConfigRef.current(undefined, { model_directories: dirs }),
+        );
       }
     }
-  }, [config, saveAppConfig]);
+  }, []);
 
   const lookupHfFiles = useCallback(async () => {
     if (!hfRepo.trim()) {

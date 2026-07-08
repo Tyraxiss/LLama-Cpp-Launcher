@@ -2,6 +2,23 @@
 
 All notable changes to LLama C++ Launcher are documented here.
 
+## [1.0.8] - 2026-07-08
+
+### Fixed
+
+- **Config persistence**: autosave waits until startup bootstrap finishes so settings are not overwritten with defaults.
+- **Stale health checks**: llama-server and Open WebUI health polls are cancelled when the server stops, preventing false error states.
+- **Open WebUI invoke args**: version/update commands use the correct `venv_path` parameter for Tauri.
+- **HF download saves**: completed downloads persist model library state from the current UI instead of a stale config snapshot.
+- **Toast timing**: rapid successive toasts no longer leave orphaned dismiss timers.
+
+### Changed
+
+- **Server settings locked** while llama-server is running, with a prompt to stop the server before editing.
+- **Open WebUI** requires llama-server to be running before it can be started.
+- **Open WebUI state** reconciles logs and health on app load after a restart.
+- Updated app icons and removed the unused `@tauri-apps/plugin-shell` dependency.
+
 ## [1.0.7] - 2026-06-25
 
 ### Added

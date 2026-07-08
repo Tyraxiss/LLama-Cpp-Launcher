@@ -12,6 +12,7 @@ interface UseOpenWebuiOptions {
   openWebuiHost: string;
   openWebuiPort: number;
   serverSettings: ServerSettings;
+  isLlamaRunning: boolean;
   buildCurrentConfig: (base?: AppConfig) => AppConfig;
   saveAppConfig: (cfg: AppConfig) => Promise<void>;
   showToast: (msg: string, type: ToastType) => void;
@@ -22,6 +23,7 @@ export function useOpenWebui({
   openWebuiHost,
   openWebuiPort,
   serverSettings,
+  isLlamaRunning,
   buildCurrentConfig,
   saveAppConfig,
   showToast,
@@ -35,8 +37,14 @@ export function useOpenWebui({
   const [openWebuiUpdating, setOpenWebuiUpdating] = useState(false);
   const openWebuiLogEndRef = useRef<HTMLDivElement>(null);
   const openWebuiHealthInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const openWebuiHealthPollSeq = useRef(0);
   const openWebuiStartupDeadline = useRef<number | null>(null);
   const stoppingOpenWebui = useRef(false);
+  const openWebuiSettingsRef = useRef({ host: openWebuiHost, port: openWebuiPort });
+
+  useEffect(() => {
+    openWebuiSettingsRef.current = { host: openWebuiHost, port: openWebuiPort };
+  }, [openWebuiHost, openWebuiPort]);
 
   useEffect(() => {
     const unlisten = listen<string>("open-webui-log", (event) => {
@@ -66,6 +74,38 @@ export function useOpenWebui({
   }, [showToast]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const reconcile = async () => {
+      const { host, port } = openWebuiSettingsRef.current;
+      try {
+        const logs = (await invoke("get_open_webui_log")) as string[];
+        if (!cancelled && logs.length > 0) {
+          setOpenWebuiLog(logs);
+        }
+      } catch {
+        // No log buffer available
+      }
+
+      try {
+        const status = await invoke("check_open_webui_health", { host, port });
+        if (!cancelled && status === "running") {
+          setOpenWebuiRunning(true);
+          setOpenWebuiStatus("running");
+        }
+      } catch {
+        // Open WebUI not reachable
+      }
+    };
+
+    void reconcile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (openWebuiLogExpanded && openWebuiLogEndRef.current) {
       openWebuiLogEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
@@ -81,7 +121,7 @@ export function useOpenWebui({
 
       try {
         const version = await invoke<string>("get_open_webui_version", {
-          venvPath: openWebuiVenvPath,
+          venv_path: openWebuiVenvPath,
         });
         setOpenWebuiVersion(version);
       } catch {
@@ -146,14 +186,17 @@ export function useOpenWebui({
         clearInterval(openWebuiHealthInterval.current);
       }
       const pollHealth = async () => {
+        const seq = ++openWebuiHealthPollSeq.current;
         try {
           const status = await invoke("check_open_webui_health", {
             host: openWebuiHost,
             port: openWebuiPort,
           });
+          if (seq !== openWebuiHealthPollSeq.current) return;
           setOpenWebuiStatus(status === "running" ? "running" : "error");
           openWebuiStartupDeadline.current = null;
         } catch {
+          if (seq !== openWebuiHealthPollSeq.current) return;
           if (openWebuiStartupDeadline.current && Date.now() < openWebuiStartupDeadline.current) {
             setOpenWebuiStatus("starting");
           } else {
@@ -163,16 +206,24 @@ export function useOpenWebui({
       };
       void pollHealth();
       openWebuiHealthInterval.current = setInterval(pollHealth, 3000);
-    } else if (openWebuiHealthInterval.current) {
-      clearInterval(openWebuiHealthInterval.current);
-      openWebuiHealthInterval.current = null;
+    } else {
+      openWebuiHealthPollSeq.current += 1;
+      if (openWebuiHealthInterval.current) {
+        clearInterval(openWebuiHealthInterval.current);
+        openWebuiHealthInterval.current = null;
+      }
     }
     return () => {
+      openWebuiHealthPollSeq.current += 1;
       if (openWebuiHealthInterval.current) clearInterval(openWebuiHealthInterval.current);
     };
   }, [openWebuiRunning, openWebuiHost, openWebuiPort]);
 
   const handleStart = useCallback(async () => {
+    if (!isLlamaRunning) {
+      showToast("Start the llama-server first", "error");
+      return;
+    }
     if (!openWebuiVenvPath) {
       showToast("Please select the Open WebUI venv folder", "error");
       return;
@@ -206,6 +257,7 @@ export function useOpenWebui({
     }
   }, [
     buildCurrentConfig,
+    isLlamaRunning,
     openWebuiHost,
     openWebuiPort,
     openWebuiVenvPath,
@@ -240,7 +292,7 @@ export function useOpenWebui({
 
     try {
       const result = await invoke<string>("update_open_webui", {
-        venvPath: openWebuiVenvPath,
+        venv_path: openWebuiVenvPath,
       });
       showToast(result, "success");
       await refreshOpenWebuiVersions();

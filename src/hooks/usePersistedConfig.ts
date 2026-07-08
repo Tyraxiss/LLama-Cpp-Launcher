@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { DEFAULT_THEME, isThemeId, type ThemeId } from "../themes";
-import type { AppConfig, ModelInfo, ModelScanResult, ServerSettings } from "../types";
+import type { AppConfig, ModelInfo, ModelScanResult, OpenWebuiSettings, ServerSettings } from "../types";
 import {
   buildConfigSnapshot,
   defaultConfig,
@@ -11,7 +11,16 @@ import {
 } from "../utils/config";
 import { deferAfterStartup } from "../utils/startup";
 
-export function usePersistedConfig() {
+type BuildConfigOverrides = Omit<Parameters<typeof buildConfigSnapshot>[1], "openWebui"> & {
+  model_directories?: string[];
+  openWebui?: Partial<OpenWebuiSettings>;
+};
+
+interface UsePersistedConfigOptions {
+  onSaveError?: (error: unknown) => void;
+}
+
+export function usePersistedConfig({ onSaveError }: UsePersistedConfigOptions = {}) {
   const [config, setConfig] = useState<AppConfig>(defaultConfig);
   const [theme, setTheme] = useState<ThemeId>(DEFAULT_THEME);
   const [exePath, setExePath] = useState("");
@@ -25,7 +34,13 @@ export function usePersistedConfig() {
   const [openWebuiVenvPath, setOpenWebuiVenvPath] = useState("");
   const [openWebuiHost, setOpenWebuiHost] = useState("127.0.0.1");
   const [openWebuiPort, setOpenWebuiPort] = useState(3000);
+  const [bootstrapComplete, setBootstrapComplete] = useState(false);
   const configLoaded = useRef(false);
+  const onSaveErrorRef = useRef(onSaveError);
+
+  useEffect(() => {
+    onSaveErrorRef.current = onSaveError;
+  }, [onSaveError]);
 
   const saveAppConfig = useCallback(async (cfg: AppConfig) => {
     try {
@@ -33,23 +48,35 @@ export function usePersistedConfig() {
       setConfig(cfg);
     } catch (error) {
       console.error("Failed to persist config:", error);
+      onSaveErrorRef.current?.(error);
     }
   }, []);
 
   const buildCurrentConfig = useCallback(
-    (base: AppConfig = config): AppConfig =>
-      buildConfigSnapshot(base, {
+    (base: AppConfig = config, overrides?: BuildConfigOverrides): AppConfig => {
+      const { model_directories, openWebui: openWebuiOverride, ...snapshotOverrides } =
+        overrides ?? {};
+      const snapshot = buildConfigSnapshot(base, {
         exePath,
         modelPath,
         mmprojPath: mmprojPath || null,
         theme,
         server: serverSettings,
-        openWebui: {
-          venvPath: openWebuiVenvPath,
-          host: openWebuiHost,
-          port: openWebuiPort,
-        },
-      }),
+        openWebui: openWebuiOverride
+          ? {
+              venvPath: openWebuiOverride.venvPath ?? openWebuiVenvPath,
+              host: openWebuiOverride.host ?? openWebuiHost,
+              port: openWebuiOverride.port ?? openWebuiPort,
+            }
+          : {
+              venvPath: openWebuiVenvPath,
+              host: openWebuiHost,
+              port: openWebuiPort,
+            },
+        ...snapshotOverrides,
+      });
+      return model_directories ? { ...snapshot, model_directories } : snapshot;
+    },
     [
       config,
       exePath,
@@ -149,6 +176,7 @@ export function usePersistedConfig() {
             if (detected && !cancelled) {
               setExePath(detected);
               await saveAppConfig({ ...workingConfig, exe_path: detected });
+              workingConfig = { ...workingConfig, exe_path: detected };
             }
           } catch {
             // silent
@@ -166,6 +194,10 @@ export function usePersistedConfig() {
             // silent
           }
         }
+
+        if (!cancelled) {
+          setBootstrapComplete(true);
+        }
       }, 150);
     };
 
@@ -177,12 +209,12 @@ export function usePersistedConfig() {
   }, [saveAppConfig]);
 
   useEffect(() => {
-    if (!configLoaded.current) return;
+    if (!configLoaded.current || !bootstrapComplete) return;
     const timer = window.setTimeout(() => {
       void saveAppConfig(buildCurrentConfig());
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [buildCurrentConfig, saveAppConfig]);
+  }, [bootstrapComplete, buildCurrentConfig, saveAppConfig]);
 
   return {
     config,
