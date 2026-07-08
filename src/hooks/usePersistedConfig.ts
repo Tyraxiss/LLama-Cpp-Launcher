@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { DEFAULT_THEME, isThemeId, type ThemeId } from "../themes";
-import type { AppConfig, ModelInfo, ModelScanResult, OpenWebuiSettings, ServerSettings } from "../types";
+import type {
+  AppConfig,
+  ModelInfo,
+  ModelScanResult,
+  OpenWebuiSettings,
+  ServerSettings,
+} from "../types";
 import {
   buildConfigSnapshot,
   defaultConfig,
@@ -54,8 +60,11 @@ export function usePersistedConfig({ onSaveError }: UsePersistedConfigOptions = 
 
   const buildCurrentConfig = useCallback(
     (base: AppConfig = config, overrides?: BuildConfigOverrides): AppConfig => {
-      const { model_directories, openWebui: openWebuiOverride, ...snapshotOverrides } =
-        overrides ?? {};
+      const {
+        model_directories,
+        openWebui: openWebuiOverride,
+        ...snapshotOverrides
+      } = overrides ?? {};
       const snapshot = buildConfigSnapshot(base, {
         exePath,
         modelPath,

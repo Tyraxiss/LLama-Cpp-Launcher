@@ -75,7 +75,8 @@ export const HELP_SECTIONS: HelpSection[] = [
   {
     id: "server-settings",
     title: "Server Settings",
-    summary: "What each llama.cpp launch option does. Settings are locked while the server is running.",
+    summary:
+      "What each llama.cpp launch option does. Settings are locked while the server is running.",
     items: [
       {
         term: "While server is running",

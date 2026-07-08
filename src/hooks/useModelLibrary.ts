@@ -10,9 +10,9 @@ interface UseModelLibraryOptions {
   mmprojs: ModelInfo[];
   buildCurrentConfig: (
     base?: AppConfig,
-    overrides?: Parameters<
-      typeof import("../utils/config").buildConfigSnapshot
-    >[1] & { model_directories?: string[] },
+    overrides?: Parameters<typeof import("../utils/config").buildConfigSnapshot>[1] & {
+      model_directories?: string[];
+    },
   ) => AppConfig;
   saveAppConfig: (cfg: AppConfig) => Promise<void>;
   setModels: (models: ModelInfo[]) => void;
@@ -118,7 +118,14 @@ export function useModelLibrary({
         setScanInProgress(false);
       }
     },
-    [applyScanResult, buildCurrentConfig, config.model_directories, hfTargetDir, saveAppConfig, setHfTargetDir],
+    [
+      applyScanResult,
+      buildCurrentConfig,
+      config.model_directories,
+      hfTargetDir,
+      saveAppConfig,
+      setHfTargetDir,
+    ],
   );
 
   const pickModel = useCallback(async () => {

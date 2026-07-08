@@ -84,10 +84,7 @@ export function useLlamaServer({
 
       try {
         const status = await invoke("check_server_health", { host, port });
-        if (
-          !cancelled &&
-          (status === "healthy" || status === "running")
-        ) {
+        if (!cancelled && (status === "healthy" || status === "running")) {
           setIsRunning(true);
           setServerStatus("running");
         }

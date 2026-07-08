@@ -24,9 +24,9 @@ import type { ToastType } from "./useToast";
 interface UseHfDownloadOptions {
   buildCurrentConfig: (
     base?: AppConfig,
-    overrides?: Parameters<
-      typeof import("../utils/config").buildConfigSnapshot
-    >[1] & { model_directories?: string[] },
+    overrides?: Parameters<typeof import("../utils/config").buildConfigSnapshot>[1] & {
+      model_directories?: string[];
+    },
   ) => AppConfig;
   saveAppConfig: (cfg: AppConfig) => Promise<void>;
   setModels: (models: ModelInfo[]) => void;
@@ -100,7 +100,15 @@ export function useHfDownload({
     setModelPathRef.current = setModelPath;
     setMmprojPathRef.current = setMmprojPath;
     showToastRef.current = showToast;
-  }, [buildCurrentConfig, saveAppConfig, setModels, setMmprojs, setModelPath, setMmprojPath, showToast]);
+  }, [
+    buildCurrentConfig,
+    saveAppConfig,
+    setModels,
+    setMmprojs,
+    setModelPath,
+    setMmprojPath,
+    showToast,
+  ]);
 
   useEffect(() => {
     hfFormRef.current = {
