@@ -31,12 +31,17 @@ jobs:
       - name: Build Tauri installers
         run: npm run build -- --bundles nsis
 
+      - name: Write release notes from CHANGELOG
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node scripts/extract-release-notes.mjs ${{ github.ref_name }} > release-notes.md
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v3
         with:
           name: LLama C++ Launcher ${{ github.ref_name }}
           draft: false
           prerelease: false
-          generate_release_notes: true
+          body_path: release-notes.md
           files: |
             src-tauri/target/release/bundle/nsis/*.exe
