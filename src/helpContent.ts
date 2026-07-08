@@ -10,6 +10,38 @@ export interface HelpSection {
 
 export const HELP_SECTIONS: HelpSection[] = [
   {
+    id: "whats-new",
+    title: "What's New (1.0.8)",
+    summary: "Recent improvements in the current release.",
+    items: [
+      {
+        term: "Settings save reliably",
+        detail:
+          "Autosave waits until startup finishes loading your config, so saved paths and server defaults are not overwritten on launch.",
+      },
+      {
+        term: "Server settings lock",
+        detail:
+          "Context, port, GPU layers, and other launch options are disabled while llama-server is running. Stop the server first to edit them.",
+      },
+      {
+        term: "Open WebUI startup order",
+        detail:
+          "Start llama-server before Open WebUI. The launcher blocks Open WebUI start until the backend is running.",
+      },
+      {
+        term: "Open WebUI state on restart",
+        detail:
+          "If you reopen the launcher while Open WebUI is still running, the app reconciles logs and health status automatically.",
+      },
+      {
+        term: "Download library updates",
+        detail:
+          "Completed Hugging Face downloads now update the model library from your current UI state instead of a stale saved snapshot.",
+      },
+    ],
+  },
+  {
     id: "quick-start",
     title: "Quick Start",
     summary: "The shortest path from a fresh install to a running local model.",
@@ -36,15 +68,20 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         term: "Start Server",
         detail:
-          "Starts llama-server with the current model and settings. The endpoint appears as http://host:port.",
+          "Starts llama-server with the current model and settings. The endpoint appears as http://host:port. Server settings cannot be changed while it is running.",
       },
     ],
   },
   {
     id: "server-settings",
     title: "Server Settings",
-    summary: "What each llama.cpp launch option does.",
+    summary: "What each llama.cpp launch option does. Settings are locked while the server is running.",
     items: [
+      {
+        term: "While server is running",
+        detail:
+          "All server settings are read-only until you stop llama-server. This prevents changing launch options mid-run.",
+      },
       {
         term: "Host",
         detail:
@@ -207,6 +244,11 @@ export const HELP_SECTIONS: HelpSection[] = [
     summary: "Use Open WebUI as the front end while llama.cpp serves the model.",
     items: [
       {
+        term: "Start llama-server first",
+        detail:
+          "Open WebUI depends on the llama.cpp backend. Start llama-server before clicking Start Open WebUI.",
+      },
+      {
         term: "Venv folder",
         detail:
           "Select the virtual environment that contains open-webui.exe. Your expected folder is C:\\llama.cpp\\.venv.",
@@ -274,7 +316,12 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         term: "Open WebUI exits immediately",
         detail:
-          "Open the Open WebUI Log. Python venv issues and missing dependencies usually show up there.",
+          "Open the Open WebUI Log. Python venv issues and missing dependencies usually show up there. Also confirm llama-server is running first.",
+      },
+      {
+        term: "Cannot change server settings",
+        detail:
+          "Stop llama-server before editing context, port, GPU layers, or other launch options. Settings are locked while the server is running.",
       },
       {
         term: "Out of memory",

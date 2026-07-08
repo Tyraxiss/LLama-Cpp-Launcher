@@ -4,6 +4,25 @@ A Windows-focused desktop app for running local [llama.cpp](https://github.com/g
 
 Built with **Tauri 2**, **React**, and **Rust**. Current version: **1.0.8**.
 
+## What's new in 1.0.8
+
+### Fixes
+
+- **Settings no longer reset on launch** — autosave waits until startup finishes loading your saved config.
+- **Fewer false server errors** — health checks stop cleanly when you stop llama-server or Open WebUI.
+- **Open WebUI version/update commands** work again with the correct Tauri parameter names.
+- **HF downloads** now save the model library using your current UI state instead of a stale snapshot.
+- **Toasts** dismiss reliably when several appear in quick succession.
+
+### Changes
+
+- **Server settings are locked while llama-server is running** — stop the server first to change context, port, GPU layers, and other launch options.
+- **Open WebUI requires llama-server to be running** before you can start it.
+- **Open WebUI state is restored on app restart** — logs and running status reconcile when you reopen the launcher.
+- Refreshed app icons.
+
+See [CHANGELOG.md](CHANGELOG.md) for the full version history.
+
 ## Quick start
 
 1. Download the latest Windows installer from [GitHub Releases](https://github.com/Tyraxiss/LLama-Cpp-Launcher/releases).
@@ -16,6 +35,7 @@ Built with **Tauri 2**, **React**, and **Rust**. Current version: **1.0.8**.
 ### Server
 
 - Launch and stop `llama-server` with saved executable, model, host, port, GPU layers, context size, and sampling settings.
+- **Server settings lock while running** — context, port, GPU layers, and other launch options cannot be changed until you stop the server.
 - Scan model folders recursively for `.gguf` files and pick models from a searchable list.
 - **Vision projector (mmproj)** support for multimodal models — auto-pair projectors in the same folder or pick manually.
 - **Use-case presets** for common tasks (code, chat, writing, research, roleplay, Gemma 4, Qwen 3.6, and more).
@@ -37,15 +57,16 @@ Built with **Tauri 2**, **React**, and **Rust**. Current version: **1.0.8**.
 
 ### Open WebUI
 
-- Start and stop Open WebUI from a local Python virtual environment.
+- Start and stop Open WebUI from a local Python virtual environment (**llama-server must be running first**).
 - Automatically points Open WebUI at the llama.cpp OpenAI-compatible endpoint (`http://host:port/v1`).
+- **Restores logs and running status** when you reopen the app after a restart.
 - Check **installed vs latest PyPI version** and run `pip install --upgrade open-webui` from the app with streamed log output.
 
 ### General
 
 - **Server**, **Downloads**, and **Help** tabs with searchable in-app documentation.
 - Dark and light themes with saved preference.
-- Settings persisted locally (executable path, model folders, server defaults, Open WebUI venv, theme).
+- Settings persisted locally (executable path, model folders, server defaults, Open WebUI venv, theme) with improved startup save reliability.
 
 ## Requirements
 
