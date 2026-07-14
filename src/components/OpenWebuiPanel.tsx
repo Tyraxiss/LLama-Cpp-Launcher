@@ -1,14 +1,4 @@
-import {
-  Copy,
-  FolderOpen,
-  Globe,
-  Loader,
-  Play,
-  RefreshCw,
-  Server,
-  Square,
-  Wifi,
-} from "lucide-react";
+import { Copy, FolderOpen, Globe, Loader, Play, Server, Square, Wifi } from "lucide-react";
 import type { ProcessStatus } from "../hooks/useLlamaServer";
 
 interface OpenWebuiPanelProps {
@@ -20,17 +10,12 @@ interface OpenWebuiPanelProps {
   status: ProcessStatus;
   isRunning: boolean;
   canStart: boolean;
-  installedVersion: string | null;
-  latestVersion: string | null;
-  updateAvailable: boolean;
   updating: boolean;
   onPickVenv: () => void;
   onHostChange: (host: string) => void;
   onPortChange: (port: number) => void;
   onStart: () => void;
   onStop: () => void;
-  onUpdate: () => void;
-  onRefreshVersion: () => void;
   onCopyUrl: () => void;
   onCopyOpenAiEndpoint: () => void;
 }
@@ -44,17 +29,12 @@ export function OpenWebuiPanel({
   status,
   isRunning,
   canStart,
-  installedVersion,
-  latestVersion,
-  updateAvailable,
   updating,
   onPickVenv,
   onHostChange,
   onPortChange,
   onStart,
   onStop,
-  onUpdate,
-  onRefreshVersion,
   onCopyUrl,
   onCopyOpenAiEndpoint,
 }: OpenWebuiPanelProps) {
@@ -75,9 +55,6 @@ export function OpenWebuiPanel({
         <Globe size={14} className="icon" />
         <h3>Open WebUI</h3>
         <span className={`mini-status ${status}`}>{statusLabel}</span>
-        {updateAvailable && !updating && (
-          <span className="mini-status starting">Update available</span>
-        )}
       </div>
 
       <button className="btn btn-wide" onClick={onPickVenv} disabled={updating}>
@@ -87,35 +64,6 @@ export function OpenWebuiPanel({
       <div className={`path-display ${!venvPath ? "empty" : ""}`}>
         {venvPath || "No Open WebUI venv selected"}
       </div>
-
-      <div className="open-webui-version-row">
-        <div className="open-webui-version-text">
-          <span>Installed: {installedVersion ? `v${installedVersion}` : "Unknown"}</span>
-          {latestVersion ? <span>Latest: v{latestVersion}</span> : null}
-        </div>
-        <button
-          className="btn btn-sm"
-          onClick={() => onRefreshVersion()}
-          disabled={!venvPath || updating}
-          title="Refresh version info"
-        >
-          <RefreshCw size={11} />
-        </button>
-      </div>
-
-      <button className="btn btn-wide" onClick={onUpdate} disabled={!venvPath || controlsDisabled}>
-        {updating ? (
-          <>
-            <Loader size={13} style={{ animation: "spin 1s linear infinite" }} />
-            Updating Open WebUI...
-          </>
-        ) : (
-          <>
-            <RefreshCw size={13} />
-            {updateAvailable ? "Update Open WebUI" : "Reinstall / Update Open WebUI"}
-          </>
-        )}
-      </button>
 
       <div className="compact-settings">
         <label>

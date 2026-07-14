@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 use nvml_wrapper::enums::device::UsedGpuMemory;
 use regex::Regex;
@@ -10,13 +10,34 @@ use crate::bindings::{
 };
 use crate::state::AppState;
 
-#[tauri::command]
-pub fn get_resource_stats(state: State<'_, AppState>) -> Result<ResourceStats, String> {
-    let server_pid = *state.server_pid.lock().map_err(|e| e.to_string())?;
+fn device_breakdown_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"llama_memory_breakdown_print:\s*\|\s*-\s*(.+?)\s*\|\s*(\d+)\s*=\s*(\d+)\s*\+\s*\(\s*(\d+)\s*=\s*(\d+)\s*\+\s*(\d+)\s*\+\s*(\d+)\s*\)",
+        )
+        .expect("valid device breakdown regex")
+    })
+}
 
+fn host_breakdown_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"llama_memory_breakdown_print:\s*\|\s*-\s*Host\s*\|\s*(\d+)\s*=\s*(\d+)\s*\+\s*(\d+)\s*\+\s*(\d+)",
+        )
+        .expect("valid host breakdown regex")
+    })
+}
+
+#[tauri::command]
+pub async fn get_resource_stats(state: State<'_, AppState>) -> Result<ResourceStats, String> {
+    let server_pid = *state.server_pid.lock().map_err(|e| e.to_string())?;
     let log = state.stderr_log.lock().map_err(|e| e.to_string())?.clone();
 
-    Ok(collect_resource_stats(server_pid, &log))
+    tauri::async_runtime::spawn_blocking(move || collect_resource_stats(server_pid, &log))
+        .await
+        .map_err(|e| format!("Resource stats failed: {e}"))
 }
 
 pub fn collect_resource_stats(server_pid: Option<u32>, stderr_log: &[String]) -> ResourceStats {
@@ -83,7 +104,7 @@ fn read_gpu_memory() -> (Vec<GpuMemoryStats>, bool) {
 
 fn read_process_memory(pid: u32, skip_gpu: bool) -> Option<ProcessMemoryStats> {
     let mut sys = System::new_with_specifics(
-        RefreshKind::nothing().with_processes(ProcessRefreshKind::everything()),
+        RefreshKind::nothing().with_processes(ProcessRefreshKind::nothing().with_memory()),
     );
     let pid = Pid::from_u32(pid);
     sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
@@ -139,18 +160,13 @@ fn read_process_gpu_memory(pid: u32) -> Option<u64> {
 }
 
 pub fn parse_model_memory_breakdown(stderr_log: &[String]) -> Vec<ModelMemoryBreakdown> {
-    let device_re = Regex::new(
-        r"llama_memory_breakdown_print:\s*\|\s*-\s*(.+?)\s*\|\s*(\d+)\s*=\s*(\d+)\s*\+\s*\(\s*(\d+)\s*=\s*(\d+)\s*\+\s*(\d+)\s*\+\s*(\d+)\s*\)",
-    )
-    .expect("valid device breakdown regex");
-    let host_re = Regex::new(
-        r"llama_memory_breakdown_print:\s*\|\s*-\s*Host\s*\|\s*(\d+)\s*=\s*(\d+)\s*\+\s*(\d+)\s*\+\s*(\d+)",
-    )
-    .expect("valid host breakdown regex");
+    let device_re = device_breakdown_re();
+    let host_re = host_breakdown_re();
 
     let mut breakdowns = Vec::new();
-
-    for line in stderr_log {
+    // Only scan the newest part of the log; full clones are already bounded to ~200 lines.
+    let start = stderr_log.len().saturating_sub(80);
+    for line in &stderr_log[start..] {
         if let Some(caps) = device_re.captures(line) {
             breakdowns.push(ModelMemoryBreakdown {
                 device: caps[1].trim().to_string(),

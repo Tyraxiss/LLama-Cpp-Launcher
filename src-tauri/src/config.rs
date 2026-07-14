@@ -32,6 +32,8 @@ impl Default for AppConfig {
             last_tensor_split: None,
             last_no_mmap: None,
             last_no_webui: None,
+            llama_cpp_backend: None,
+            llama_cpp_tag: None,
         }
     }
 }

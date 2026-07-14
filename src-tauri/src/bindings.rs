@@ -34,6 +34,10 @@ pub struct AppConfig {
     pub last_tensor_split: Option<String>,
     pub last_no_mmap: Option<bool>,
     pub last_no_webui: Option<bool>,
+    /// Preferred llama.cpp Windows backend id (for example `cuda-12.4`).
+    pub llama_cpp_backend: Option<String>,
+    /// Last installed / known llama.cpp release tag (for example `b10003`).
+    pub llama_cpp_tag: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, TS)]
@@ -195,6 +199,54 @@ pub struct ResourceStats {
     pub gpu_available: bool,
 }
 
+#[derive(Debug, Serialize, Clone, TS)]
+#[ts(export_to = "../../src/generated/bindings.ts")]
+pub struct LlamaCppBackendOption {
+    pub id: String,
+    pub label: String,
+    pub asset_name: String,
+    #[ts(type = "number | null")]
+    pub size_bytes: Option<u64>,
+    pub cudart_asset_name: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone, TS)]
+#[ts(export_to = "../../src/generated/bindings.ts")]
+pub struct LlamaCppUpdateInfo {
+    pub install_dir: String,
+    pub installed_tag: Option<String>,
+    pub detected_backend: String,
+    pub selected_backend: String,
+    pub latest_tag: String,
+    pub update_available: bool,
+    pub release_url: String,
+    pub backends: Vec<LlamaCppBackendOption>,
+}
+
+#[derive(Debug, Serialize, Clone, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export_to = "../../src/generated/bindings.ts")]
+pub enum LlamaCppUpdateStage {
+    Checking,
+    Downloading,
+    Extracting,
+    Installing,
+    Complete,
+    Error,
+}
+
+#[derive(Debug, Serialize, Clone, TS)]
+#[ts(export_to = "../../src/generated/bindings.ts")]
+pub struct LlamaCppUpdateProgress {
+    pub stage: LlamaCppUpdateStage,
+    pub filename: Option<String>,
+    #[ts(type = "number")]
+    pub downloaded_bytes: u64,
+    #[ts(type = "number | null")]
+    pub total_bytes: Option<u64>,
+    pub message: String,
+}
+
 #[cfg(test)]
 mod export_bindings {
     use super::*;
@@ -216,5 +268,9 @@ mod export_bindings {
         ProcessMemoryStats::export().expect("export ProcessMemoryStats");
         ModelMemoryBreakdown::export().expect("export ModelMemoryBreakdown");
         ResourceStats::export().expect("export ResourceStats");
+        LlamaCppBackendOption::export().expect("export LlamaCppBackendOption");
+        LlamaCppUpdateInfo::export().expect("export LlamaCppUpdateInfo");
+        LlamaCppUpdateStage::export().expect("export LlamaCppUpdateStage");
+        LlamaCppUpdateProgress::export().expect("export LlamaCppUpdateProgress");
     }
 }

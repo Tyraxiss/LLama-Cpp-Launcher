@@ -40,6 +40,9 @@ export function useOpenWebui({
   const openWebuiHealthPollSeq = useRef(0);
   const openWebuiStartupDeadline = useRef<number | null>(null);
   const stoppingOpenWebui = useRef(false);
+  const userStoppedRef = useRef(false);
+  const healthInFlight = useRef(false);
+  const openWebuiRunningRef = useRef(false);
   const openWebuiSettingsRef = useRef({ host: openWebuiHost, port: openWebuiPort });
 
   useEffect(() => {
@@ -47,37 +50,131 @@ export function useOpenWebui({
   }, [openWebuiHost, openWebuiPort]);
 
   useEffect(() => {
+    openWebuiRunningRef.current = openWebuiRunning;
+  }, [openWebuiRunning]);
+
+  useEffect(() => {
     const unlisten = listen<string>("open-webui-log", (event) => {
       setOpenWebuiLog((prev) => appendBoundedLog(prev, event.payload));
     });
     return () => {
-      unlisten.then((fn) => fn());
+      void unlisten.then((fn) => fn());
     };
   }, []);
 
   useEffect(() => {
     const unlisten = listen<string>("open-webui-exited", (event) => {
-      setOpenWebuiRunning(false);
-      openWebuiStartupDeadline.current = null;
-      setOpenWebuiLog((prev) => appendBoundedLog(prev, `Process exited: ${event.payload}`));
-      if (stoppingOpenWebui.current) {
-        stoppingOpenWebui.current = false;
-        setOpenWebuiStatus("stopped");
-      } else {
+      void (async () => {
+        setOpenWebuiLog((prev) => appendBoundedLog(prev, `Process handle ended: ${event.payload}`));
+
+        if (stoppingOpenWebui.current || userStoppedRef.current) {
+          stoppingOpenWebui.current = false;
+          openWebuiStartupDeadline.current = null;
+          setOpenWebuiRunning(false);
+          setOpenWebuiStatus("stopped");
+          return;
+        }
+
+        // open-webui often keeps serving after the tracked child ends.
+        const { host, port } = openWebuiSettingsRef.current;
+        try {
+          const status = await invoke("check_open_webui_health", { host, port });
+          if (status === "running") {
+            setOpenWebuiRunning(true);
+            setOpenWebuiStatus("running");
+            setOpenWebuiLog((prev) =>
+              appendBoundedLog(
+                prev,
+                "Open WebUI is still responding on its port; keeping status as running.",
+              ),
+            );
+            return;
+          }
+        } catch {
+          // Not reachable
+        }
+
+        openWebuiStartupDeadline.current = null;
+        setOpenWebuiRunning(false);
         setOpenWebuiStatus("error");
         showToast("Open WebUI exited", "error");
-      }
+      })();
     });
     return () => {
-      unlisten.then((fn) => fn());
+      void unlisten.then((fn) => fn());
     };
   }, [showToast]);
 
   useEffect(() => {
+    if (openWebuiLogExpanded && openWebuiLogEndRef.current) {
+      openWebuiLogEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [openWebuiLog, openWebuiLogExpanded]);
+
+  // Poll health: faster while starting/running, slower while stopped (orphan detect only).
+  useEffect(() => {
+    if (openWebuiHealthInterval.current) {
+      clearInterval(openWebuiHealthInterval.current);
+    }
+
+    const pollHealth = async () => {
+      if (healthInFlight.current || stoppingOpenWebui.current) return;
+      healthInFlight.current = true;
+      const seq = ++openWebuiHealthPollSeq.current;
+      const { host, port } = openWebuiSettingsRef.current;
+      try {
+        const status = await invoke("check_open_webui_health", { host, port });
+        if (seq !== openWebuiHealthPollSeq.current) return;
+        if (userStoppedRef.current) {
+          // User asked to stop — do not auto-revive until they Start again.
+          return;
+        }
+        if (status === "running") {
+          setOpenWebuiRunning(true);
+          setOpenWebuiStatus("running");
+          openWebuiStartupDeadline.current = null;
+        }
+      } catch {
+        if (seq !== openWebuiHealthPollSeq.current) return;
+        if (stoppingOpenWebui.current || userStoppedRef.current) {
+          setOpenWebuiRunning(false);
+          setOpenWebuiStatus("stopped");
+          return;
+        }
+        if (openWebuiStartupDeadline.current && Date.now() < openWebuiStartupDeadline.current) {
+          setOpenWebuiStatus("starting");
+          return;
+        }
+        if (openWebuiRunningRef.current) {
+          setOpenWebuiRunning(false);
+          setOpenWebuiStatus("error");
+        } else if (openWebuiStartupDeadline.current) {
+          openWebuiStartupDeadline.current = null;
+          setOpenWebuiRunning(false);
+          setOpenWebuiStatus("error");
+        }
+      } finally {
+        healthInFlight.current = false;
+      }
+    };
+
+    void pollHealth();
+    const intervalMs = openWebuiRunning || openWebuiStatus === "starting" ? 3000 : 10000;
+    openWebuiHealthInterval.current = setInterval(pollHealth, intervalMs);
+
+    return () => {
+      openWebuiHealthPollSeq.current += 1;
+      if (openWebuiHealthInterval.current) {
+        clearInterval(openWebuiHealthInterval.current);
+        openWebuiHealthInterval.current = null;
+      }
+    };
+  }, [openWebuiHost, openWebuiPort, openWebuiRunning, openWebuiStatus]);
+
+  useEffect(() => {
     let cancelled = false;
 
-    const reconcile = async () => {
-      const { host, port } = openWebuiSettingsRef.current;
+    const loadLogs = async () => {
       try {
         const logs = (await invoke("get_open_webui_log")) as string[];
         if (!cancelled && logs.length > 0) {
@@ -86,30 +183,13 @@ export function useOpenWebui({
       } catch {
         // No log buffer available
       }
-
-      try {
-        const status = await invoke("check_open_webui_health", { host, port });
-        if (!cancelled && status === "running") {
-          setOpenWebuiRunning(true);
-          setOpenWebuiStatus("running");
-        }
-      } catch {
-        // Open WebUI not reachable
-      }
     };
 
-    void reconcile();
-
+    void loadLogs();
     return () => {
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    if (openWebuiLogExpanded && openWebuiLogEndRef.current) {
-      openWebuiLogEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [openWebuiLog, openWebuiLogExpanded]);
 
   const refreshOpenWebuiVersions = useCallback(
     async (includeLatest = true) => {
@@ -121,7 +201,7 @@ export function useOpenWebui({
 
       try {
         const version = await invoke<string>("get_open_webui_version", {
-          venv_path: openWebuiVenvPath,
+          venvPath: openWebuiVenvPath,
         });
         setOpenWebuiVersion(version);
       } catch {
@@ -150,26 +230,19 @@ export function useOpenWebui({
     }
 
     let cancelled = false;
+    // Defer version checks — not needed for first paint.
     const cancelInstalled = deferAfterStartup(() => {
-      if (cancelled) {
-        return;
-      }
+      if (cancelled) return;
       void refreshOpenWebuiVersions(false);
-    }, 800);
+    }, 2500);
     const cancelLatest = runWhenIdle(() => {
-      if (cancelled) {
-        return;
-      }
+      if (cancelled) return;
       void invoke<string>("get_open_webui_latest_version")
         .then((latest) => {
-          if (!cancelled) {
-            setOpenWebuiLatestVersion(latest);
-          }
+          if (!cancelled) setOpenWebuiLatestVersion(latest);
         })
         .catch(() => {
-          if (!cancelled) {
-            setOpenWebuiLatestVersion(null);
-          }
+          if (!cancelled) setOpenWebuiLatestVersion(null);
         });
     });
 
@@ -179,45 +252,6 @@ export function useOpenWebui({
       cancelLatest();
     };
   }, [openWebuiVenvPath, refreshOpenWebuiVersions]);
-
-  useEffect(() => {
-    if (openWebuiRunning) {
-      if (openWebuiHealthInterval.current) {
-        clearInterval(openWebuiHealthInterval.current);
-      }
-      const pollHealth = async () => {
-        const seq = ++openWebuiHealthPollSeq.current;
-        try {
-          const status = await invoke("check_open_webui_health", {
-            host: openWebuiHost,
-            port: openWebuiPort,
-          });
-          if (seq !== openWebuiHealthPollSeq.current) return;
-          setOpenWebuiStatus(status === "running" ? "running" : "error");
-          openWebuiStartupDeadline.current = null;
-        } catch {
-          if (seq !== openWebuiHealthPollSeq.current) return;
-          if (openWebuiStartupDeadline.current && Date.now() < openWebuiStartupDeadline.current) {
-            setOpenWebuiStatus("starting");
-          } else {
-            setOpenWebuiStatus("error");
-          }
-        }
-      };
-      void pollHealth();
-      openWebuiHealthInterval.current = setInterval(pollHealth, 3000);
-    } else {
-      openWebuiHealthPollSeq.current += 1;
-      if (openWebuiHealthInterval.current) {
-        clearInterval(openWebuiHealthInterval.current);
-        openWebuiHealthInterval.current = null;
-      }
-    }
-    return () => {
-      openWebuiHealthPollSeq.current += 1;
-      if (openWebuiHealthInterval.current) clearInterval(openWebuiHealthInterval.current);
-    };
-  }, [openWebuiRunning, openWebuiHost, openWebuiPort]);
 
   const handleStart = useCallback(async () => {
     if (!isLlamaRunning) {
@@ -229,6 +263,7 @@ export function useOpenWebui({
       return;
     }
 
+    userStoppedRef.current = false;
     setOpenWebuiStatus("starting");
     stoppingOpenWebui.current = false;
     setOpenWebuiLog([]);
@@ -249,6 +284,21 @@ export function useOpenWebui({
       setOpenWebuiStatus("starting");
       showToast(result as string, "success");
     } catch (error) {
+      try {
+        const status = await invoke("check_open_webui_health", {
+          host: openWebuiHost,
+          port: openWebuiPort,
+        });
+        if (status === "running") {
+          userStoppedRef.current = false;
+          setOpenWebuiRunning(true);
+          setOpenWebuiStatus("running");
+          showToast("Open WebUI is already running on that port", "success");
+          return;
+        }
+      } catch {
+        // ignore
+      }
       setOpenWebuiStatus("error");
       setOpenWebuiRunning(false);
       openWebuiStartupDeadline.current = null;
@@ -269,17 +319,19 @@ export function useOpenWebui({
 
   const handleStop = useCallback(async () => {
     try {
+      userStoppedRef.current = true;
       stoppingOpenWebui.current = true;
-      const result = await invoke("stop_open_webui");
+      const result = await invoke("stop_open_webui", { port: openWebuiPort });
       showToast(result as string, "success");
       setOpenWebuiRunning(false);
       setOpenWebuiStatus("stopped");
       openWebuiStartupDeadline.current = null;
+      stoppingOpenWebui.current = false;
     } catch (error) {
       stoppingOpenWebui.current = false;
       showToast(String(error), "error");
     }
-  }, [showToast]);
+  }, [openWebuiPort, showToast]);
 
   const handleUpdate = useCallback(async () => {
     if (!openWebuiVenvPath) {
@@ -292,7 +344,7 @@ export function useOpenWebui({
 
     try {
       const result = await invoke<string>("update_open_webui", {
-        venv_path: openWebuiVenvPath,
+        venvPath: openWebuiVenvPath,
       });
       showToast(result, "success");
       await refreshOpenWebuiVersions();
@@ -323,7 +375,11 @@ export function useOpenWebui({
     openWebuiVersion && openWebuiLatestVersion && openWebuiVersion !== openWebuiLatestVersion,
   );
   const canStart = Boolean(
-    openWebuiVenvPath && openWebuiStatus !== "starting" && !openWebuiUpdating,
+    openWebuiVenvPath &&
+    isLlamaRunning &&
+    !openWebuiRunning &&
+    openWebuiStatus !== "starting" &&
+    !openWebuiUpdating,
   );
 
   return {

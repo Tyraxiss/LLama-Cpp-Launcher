@@ -11,33 +11,43 @@ export interface HelpSection {
 export const HELP_SECTIONS: HelpSection[] = [
   {
     id: "whats-new",
-    title: "What's New (1.0.8)",
-    summary: "Recent improvements in the current release.",
+    title: "What's New (1.0.9)",
+    summary: "Updates, safer downloads, and a lighter startup in this release.",
     items: [
       {
-        term: "Settings save reliably",
+        term: "In-app llama.cpp updates",
         detail:
-          "Autosave waits until startup finishes loading your config, so saved paths and server defaults are not overwritten on launch.",
+          "Open the Settings tab, pick a backend (CPU, CUDA, Vulkan, or HIP), stop llama-server, then update from the latest ggml-org/llama.cpp GitHub release. The launcher installs into the same folder as your current llama-server.exe.",
       },
       {
-        term: "Server settings lock",
+        term: "Auto-download matching mmproj",
         detail:
-          "Context, port, GPU layers, and other launch options are disabled while llama-server is running. Stop the server first to edit them.",
+          "Optional Downloads toggle. When enabled, queuing a model GGUF also queues a vision projector from the same Hugging Face repo (name match, or a companion like mmproj-F16.gguf). Leave it off for text-only downloads.",
       },
       {
-        term: "Open WebUI startup order",
+        term: "Safer Hugging Face downloads",
         detail:
-          "Start llama-server before Open WebUI. The launcher blocks Open WebUI start until the backend is running.",
+          "Resume and discard use the correct Tauri parameters. Incomplete downloads are not finalized, and resumes continue only when the repo revision still matches. Generic mmproj files are saved with a repo suffix so different model sizes do not overwrite each other.",
       },
       {
-        term: "Open WebUI state on restart",
+        term: "Updates on the Settings tab",
         detail:
-          "If you reopen the launcher while Open WebUI is still running, the app reconciles logs and health status automatically.",
+          "llama.cpp and Open WebUI update controls live on Settings so the Server workspace stays focused on launch and models. An amber tab dot appears when an update is available.",
       },
       {
-        term: "Download library updates",
+        term: "Open WebUI status tracking",
         detail:
-          "Completed Hugging Face downloads now update the model library from your current UI state instead of a stale saved snapshot.",
+          "If Open WebUI keeps serving after the process handle is lost, the launcher still shows Running when the port responds. Stop can kill orphan listeners on that port.",
+      },
+      {
+        term: "Vision projector matching",
+        detail:
+          "Auto-pair only when filenames share meaningful tokens. An intentional None stays None across restarts. Server start also checks embedding-size compatibility before launching.",
+      },
+      {
+        term: "Lighter startup",
+        detail:
+          "Version and update network checks are deferred; resource polling and download progress updates are less aggressive so the UI stays responsive.",
       },
     ],
   },
@@ -225,6 +235,11 @@ export const HELP_SECTIONS: HelpSection[] = [
           "Choose where the .gguf should be saved. New folders can be added with the browse button.",
       },
       {
+        term: "Auto-download matching mmproj",
+        detail:
+          "Optional Downloads toggle. When enabled, queuing a model GGUF also queues a vision projector from the same Hugging Face repo. Prefers a filename match when available; otherwise picks a same-repo companion such as mmproj-F16.gguf. Generic mmproj files are saved with a repo suffix locally (for example mmproj-F16.gemma-4-E4B-it.gguf) so different model sizes do not overwrite each other. Leave it off for text-only downloads.",
+      },
+      {
         term: "Partial downloads",
         detail: "Downloads are written as .part files first and renamed when complete.",
       },
@@ -236,6 +251,43 @@ export const HELP_SECTIONS: HelpSection[] = [
         term: "HF token",
         detail:
           "Only needed for private or gated models after you have accepted the model license on Hugging Face.",
+      },
+    ],
+  },
+  {
+    id: "updates",
+    title: "Updates",
+    summary: "How to keep Open WebUI and llama.cpp current from the Settings tab.",
+    items: [
+      {
+        term: "Update Open WebUI",
+        detail:
+          "Open the Settings tab, stop Open WebUI if it is running, then click Update Open WebUI. The launcher runs pip install --upgrade open-webui in your selected venv.",
+      },
+      {
+        term: "Update llama.cpp",
+        detail:
+          "On Settings, choose the backend that matches your GPU stack, stop llama-server, then click Update llama.cpp to install the latest GitHub release into that folder.",
+      },
+      {
+        term: "Update available badge",
+        detail:
+          "The Settings tab shows an amber dot when either llama.cpp or Open WebUI has an update available. Version cards also show Installed vs Latest.",
+      },
+      {
+        term: "llama.cpp / llama-server",
+        detail:
+          "On Settings, pick a backend (CPU, CUDA 12.4, CUDA 13.3, Vulkan, or HIP), then click Update llama.cpp. The launcher downloads the matching Windows zip from ggml-org/llama.cpp releases and installs it next to your current llama-server.exe. Stop the server first. Select the executable on the Server tab if needed.",
+      },
+      {
+        term: "CUDA runtime DLLs",
+        detail:
+          "CUDA backends also download the matching cudart package and merge those DLLs into the same folder so the new build can run.",
+      },
+      {
+        term: "Installed build tag",
+        detail:
+          "After an in-app update, the launcher stores the release tag (for example b10003) so it can detect newer builds. Older folders may show Installed: Unknown until you update once.",
       },
     ],
   },
@@ -256,7 +308,8 @@ export const HELP_SECTIONS: HelpSection[] = [
       },
       {
         term: "Open WebUI port",
-        detail: "Defaults to 3000 to avoid colliding with llama-server on 8080.",
+        detail:
+          "Defaults to 3000 to avoid colliding with llama-server on 8080. Host and port are passed on the serve command line. If Open WebUI previously saved different values in its own PersistentConfig database, clear or edit that config in Open WebUI if the UI does not match the launcher settings.",
       },
       {
         term: "Backend endpoint",
@@ -318,6 +371,16 @@ export const HELP_SECTIONS: HelpSection[] = [
         term: "Open WebUI exits immediately",
         detail:
           "Open the Open WebUI Log. Python venv issues and missing dependencies usually show up there. Also confirm llama-server is running first.",
+      },
+      {
+        term: "Open WebUI shows Stopped but the page still works",
+        detail:
+          "Open WebUI sometimes keeps serving after the launcher loses its process handle. The app now re-checks the Open WebUI port every few seconds and will show Running again when the page responds. Use Stop to kill whatever is listening on that port.",
+      },
+      {
+        term: "Open WebUI MP3 upload fails (Errno 22)",
+        detail:
+          "This is a known Open WebUI Windows bug: older builds build audio paths with mixed separators (C:\\...\\uploads/file.mp3), which can fail with [Errno 22] Invalid argument. Stop Open WebUI, open Settings, update Open WebUI via pip, then restart it. Also install ffmpeg on PATH if audio conversion is required. This is not a llama.cpp launcher bug.",
       },
       {
         term: "Cannot change server settings",

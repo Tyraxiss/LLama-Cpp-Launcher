@@ -12,6 +12,13 @@ pub async fn start_llama_server(
     state: State<'_, AppState>,
     config: ServerStartConfig,
 ) -> Result<String, String> {
+    {
+        let updating = state.llama_cpp_updating.lock().map_err(|e| e.to_string())?;
+        if *updating {
+            return Err("Wait for the llama.cpp update to finish before starting the server.".into());
+        }
+    }
+
     let mut lock = state.child_process.lock().map_err(|e| e.to_string())?;
     if lock.is_some() {
         return Err("Server is already running. Stop it first.".into());
@@ -25,6 +32,17 @@ pub async fn start_llama_server(
     if let Some(ref mmproj) = config.mmproj_path {
         if !mmproj.is_empty() && !PathBuf::from(mmproj).is_file() {
             return Err("Selected mmproj file was not found.".into());
+        }
+    }
+    if let Some(ref mmproj) = config.mmproj_path {
+        if !mmproj.is_empty() {
+            if let (Ok(model_info), Ok(mmproj_info)) = (
+                crate::gguf::read_gguf_info(PathBuf::from(&config.model_path).as_path()),
+                crate::gguf::read_gguf_info(PathBuf::from(mmproj).as_path()),
+            ) {
+                crate::gguf::mmproj_compatible(&model_info, &mmproj_info)?;
+            }
+            // If metadata cannot be read, let llama.cpp do the real validation.
         }
     }
 
@@ -145,11 +163,11 @@ pub async fn start_llama_server(
 #[tauri::command]
 pub fn stop_llama_server(state: State<'_, AppState>) -> Result<String, String> {
     let mut lock = state.child_process.lock().map_err(|e| e.to_string())?;
-    set_server_pid(&state.server_pid, None);
     if let Some(child) = lock.take() {
         child
             .kill()
             .map_err(|e| format!("Failed to kill process: {}", e))?;
+        set_server_pid(&state.server_pid, None);
         Ok("Server stopped".into())
     } else {
         Err("No server running".into())

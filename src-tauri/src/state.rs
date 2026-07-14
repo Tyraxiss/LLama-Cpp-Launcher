@@ -13,6 +13,7 @@ pub struct AppState {
     pub server_pid: Mutex<Option<u32>>,
     pub open_webui_process: Mutex<Option<CommandChild>>,
     pub open_webui_updating: Mutex<bool>,
+    pub llama_cpp_updating: Mutex<bool>,
     pub hf_download_cancel: Mutex<Option<Arc<AtomicBool>>>,
     pub config: Mutex<AppConfig>,
     pub stderr_log: Mutex<Vec<String>>,

@@ -2,8 +2,10 @@
 
 mod bindings;
 mod config;
+mod gguf;
 mod health;
 mod hf;
+mod llama_update;
 mod models;
 mod open_webui;
 mod process_util;
@@ -26,6 +28,7 @@ fn main() {
                 server_pid: std::sync::Mutex::new(None),
                 open_webui_process: std::sync::Mutex::new(None),
                 open_webui_updating: std::sync::Mutex::new(false),
+                llama_cpp_updating: std::sync::Mutex::new(false),
                 hf_download_cancel: std::sync::Mutex::new(None),
                 config: std::sync::Mutex::new(config),
                 stderr_log: std::sync::Mutex::new(Vec::new()),
@@ -59,6 +62,8 @@ fn main() {
             health::check_server_health,
             health::check_open_webui_health,
             resources::get_resource_stats,
+            llama_update::get_llama_cpp_update_info,
+            llama_update::update_llama_cpp,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

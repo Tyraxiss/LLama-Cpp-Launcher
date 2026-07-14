@@ -7,7 +7,9 @@ import { ModelSelectionPanel } from "./components/ModelSelectionPanel";
 import { OpenWebuiPanel } from "./components/OpenWebuiPanel";
 import { HeaderMemoryStats } from "./components/HeaderMemoryStats";
 import { ServerSettingsPanel } from "./components/ServerSettingsPanel";
+import { SettingsPanel } from "./components/SettingsPanel";
 import { useHfDownload } from "./hooks/useHfDownload";
+import { useLlamaCppUpdate } from "./hooks/useLlamaCppUpdate";
 import { useLlamaServer } from "./hooks/useLlamaServer";
 import { useModelLibrary } from "./hooks/useModelLibrary";
 import { useOpenWebui } from "./hooks/useOpenWebui";
@@ -17,7 +19,7 @@ import { useToast } from "./hooks/useToast";
 import { PRESETS } from "./presets";
 import { THEME_OPTIONS, type ThemeId } from "./themes";
 import type { ServerSettings } from "./types";
-import { formatBytes, samePath } from "./utils/config";
+import { formatBytes, isMmprojFilename, samePath } from "./utils/config";
 import {
   Zap,
   Play,
@@ -39,10 +41,11 @@ import {
   Download,
   Palette,
   BookOpen,
+  Settings,
 } from "lucide-react";
 
 function App() {
-  const { toast, showToast } = useToast();
+  const { toast, showToast, dismissToast, pauseToastTimer, resumeToastTimer } = useToast();
   const {
     config,
     theme,
@@ -72,7 +75,9 @@ function App() {
   });
 
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"server" | "downloads" | "help">("server");
+  const [activeTab, setActiveTab] = useState<"server" | "downloads" | "settings" | "help">(
+    "server",
+  );
   const resourceStats = useResourceStats();
 
   const hf = useHfDownload({
@@ -104,6 +109,15 @@ function App() {
     modelPath,
     mmprojPath,
     serverSettings,
+    buildCurrentConfig,
+    saveAppConfig,
+    showToast,
+  });
+
+  const llamaUpdate = useLlamaCppUpdate({
+    exePath,
+    setExePath,
+    isServerRunning: server.isRunning,
     buildCurrentConfig,
     saveAppConfig,
     showToast,
@@ -209,6 +223,8 @@ function App() {
       progress={hf.hfProgress}
       partialDownload={hf.hfPartialDownload}
       canResume={hf.canResume}
+      autoDownloadMmproj={hf.autoDownloadMmproj}
+      matchedMmproj={hf.matchedMmproj}
       formatBytes={formatBytes}
       onRepoChange={hf.setHfRepo}
       onTokenChange={hf.setHfToken}
@@ -217,6 +233,7 @@ function App() {
       onLookupFiles={hf.lookupHfFiles}
       onBrowseTargetDir={hf.browseHfTargetDir}
       onEnqueueDownload={hf.enqueueHfDownload}
+      onAutoDownloadMmprojChange={hf.setAutoDownloadMmproj}
       onRemoveQueued={hf.removeQueuedDownload}
       onRetryQueued={hf.retryQueuedDownload}
       onClearFinishedQueue={hf.clearFinishedQueue}
@@ -276,6 +293,16 @@ function App() {
           <Download size={14} />
           Downloads
           {hf.hfQueueActive && <span className="tab-dot" />}
+        </button>
+        <button
+          className={`tab-button ${activeTab === "settings" ? "active" : ""}`}
+          onClick={() => setActiveTab("settings")}
+        >
+          <Settings size={14} />
+          Settings
+          {(llamaUpdate.updateAvailable || openWebui.updateAvailable) &&
+            !llamaUpdate.updating &&
+            !openWebui.openWebuiUpdating && <span className="tab-dot" />}
         </button>
         <button
           className={`tab-button ${activeTab === "help" ? "active" : ""}`}
@@ -397,17 +424,12 @@ function App() {
               status={openWebui.openWebuiStatus}
               isRunning={openWebui.openWebuiRunning}
               canStart={openWebui.canStart}
-              installedVersion={openWebui.openWebuiVersion}
-              latestVersion={openWebui.openWebuiLatestVersion}
-              updateAvailable={openWebui.updateAvailable}
               updating={openWebui.openWebuiUpdating}
               onPickVenv={pickOpenWebuiVenv}
               onHostChange={setOpenWebuiHost}
               onPortChange={setOpenWebuiPort}
               onStart={openWebui.handleStart}
               onStop={openWebui.handleStop}
-              onUpdate={openWebui.handleUpdate}
-              onRefreshVersion={openWebui.refreshOpenWebuiVersions}
               onCopyUrl={openWebui.copyOpenWebuiEndpoint}
               onCopyOpenAiEndpoint={server.copyOpenAiEndpoint}
             />
@@ -453,7 +475,10 @@ function App() {
                 selectedModelInfo?.filename ||
                 (modelPath ? modelPath.split(/[/\\]/).pop() || modelPath : "")
               }
-              onChange={(patch) => setServerSettings((current) => ({ ...current, ...patch }))}
+              onChange={(patch) => {
+                setSelectedPreset(null);
+                setServerSettings((current) => ({ ...current, ...patch }));
+              }}
             />
 
             <LogPanel
@@ -545,8 +570,15 @@ function App() {
                     hf.downloadHistory.map((item) => (
                       <button
                         key={`${item.path}-${item.completed_at}`}
-                        className={`history-row ${samePath(item.path, modelPath) ? "selected" : ""}`}
-                        onClick={() => modelLibrary.handleModelSelect(item.path)}
+                        className={`history-row ${samePath(item.path, modelPath) || samePath(item.path, mmprojPath) ? "selected" : ""}`}
+                        onClick={() => {
+                          if (isMmprojFilename(item.filename)) {
+                            void modelLibrary.handleMmprojSelect(item.path);
+                            showToast("Selected as Vision Projector", "success");
+                            return;
+                          }
+                          void modelLibrary.handleModelSelect(item.path);
+                        }}
                       >
                         <span>{item.filename}</span>
                         <small>{item.repo}</small>
@@ -615,16 +647,68 @@ function App() {
             </div>
           </section>
         </div>
+      ) : activeTab === "settings" ? (
+        <SettingsPanel
+          exePath={exePath}
+          openWebuiVenvPath={openWebuiVenvPath}
+          isServerRunning={server.isRunning}
+          isOpenWebuiRunning={openWebui.openWebuiRunning}
+          llamaUpdateInfo={llamaUpdate.updateInfo}
+          selectedBackend={llamaUpdate.selectedBackend}
+          backends={llamaUpdate.backends}
+          llamaChecking={llamaUpdate.checking}
+          llamaUpdating={llamaUpdate.updating}
+          llamaProgress={llamaUpdate.progress}
+          llamaUpdateAvailable={llamaUpdate.updateAvailable}
+          canUpdateLlama={llamaUpdate.canUpdate}
+          onLlamaBackendChange={llamaUpdate.handleBackendChange}
+          onLlamaCheck={() => {
+            void llamaUpdate.checkForUpdate();
+          }}
+          onLlamaUpdate={() => {
+            void llamaUpdate.handleUpdate();
+          }}
+          openWebuiInstalledVersion={openWebui.openWebuiVersion}
+          openWebuiLatestVersion={openWebui.openWebuiLatestVersion}
+          openWebuiUpdateAvailable={openWebui.updateAvailable}
+          openWebuiUpdating={openWebui.openWebuiUpdating}
+          onOpenWebuiUpdate={openWebui.handleUpdate}
+          onOpenWebuiRefreshVersion={openWebui.refreshOpenWebuiVersions}
+        />
       ) : (
         <HelpPanel />
       )}
 
       {toast && (
-        <div className={`toast ${toast.type}`}>
-          {toast.type === "success" ? (
-            <CheckCircle size={14} style={{ marginRight: 6, verticalAlign: -2 }} />
-          ) : null}
-          {toast.msg}
+        <div
+          className={`toast ${toast.type}`}
+          role="status"
+          onMouseEnter={pauseToastTimer}
+          onMouseLeave={resumeToastTimer}
+        >
+          <div className="toast-body">
+            {toast.type === "success" ? <CheckCircle size={14} className="toast-icon" /> : null}
+            <span className="toast-msg">{toast.msg}</span>
+          </div>
+          <div className="toast-actions">
+            {toast.type === "error" && (
+              <button
+                className="toast-action"
+                title="Copy error"
+                onClick={() => {
+                  void navigator.clipboard.writeText(toast.msg).then(
+                    () => showToast("Error copied", "success"),
+                    () => undefined,
+                  );
+                }}
+              >
+                <Copy size={12} />
+              </button>
+            )}
+            <button className="toast-action" title="Dismiss" onClick={dismissToast}>
+              <X size={12} />
+            </button>
+          </div>
         </div>
       )}
     </div>

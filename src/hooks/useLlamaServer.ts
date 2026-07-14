@@ -33,6 +33,8 @@ export function useLlamaServer({
   const logEndRef = useRef<HTMLDivElement>(null);
   const healthInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const healthPollSeq = useRef(0);
+  const healthInFlight = useRef(false);
+  const healthFailCount = useRef(0);
   const startupDeadline = useRef<number | null>(null);
   const stoppingServer = useRef(false);
   const serverSettingsRef = useRef(serverSettings);
@@ -112,6 +114,8 @@ export function useLlamaServer({
         clearInterval(healthInterval.current);
       }
       const pollHealth = async () => {
+        if (healthInFlight.current) return;
+        healthInFlight.current = true;
         const seq = ++healthPollSeq.current;
         try {
           const status = await invoke("check_server_health", {
@@ -119,6 +123,7 @@ export function useLlamaServer({
             port: serverSettings.port,
           });
           if (seq !== healthPollSeq.current) return;
+          healthFailCount.current = 0;
           setServerStatus(status === "healthy" || status === "running" ? "running" : "error");
           startupDeadline.current = null;
         } catch {
@@ -126,8 +131,15 @@ export function useLlamaServer({
           if (startupDeadline.current && Date.now() < startupDeadline.current) {
             setServerStatus("starting");
           } else {
+            healthFailCount.current += 1;
             setServerStatus("error");
+            // After sustained failures, drop "running" so Stop/Start isn't stuck.
+            if (healthFailCount.current >= 3) {
+              setIsRunning(false);
+            }
           }
+        } finally {
+          healthInFlight.current = false;
         }
       };
       void pollHealth();

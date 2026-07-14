@@ -66,7 +66,11 @@ fn scan_dir_recursive(
         }
         if metadata.is_dir() {
             scan_dir_recursive(path, models, seen_dirs, seen_models);
-        } else if path.extension().map(|e| e == "gguf").unwrap_or(false) {
+        } else if path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("gguf"))
+        {
             let canonical_model = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
             if !seen_models.insert(canonical_model) {
                 continue;
@@ -85,6 +89,74 @@ fn scan_dir_recursive(
 }
 
 // Keep scoring logic in sync with suggestMmprojPath in src/utils/config.ts.
+fn is_noise_token(token: &str) -> bool {
+    matches!(
+        token,
+        "gguf"
+            | "mmproj"
+            | "proj"
+            | "projector"
+            | "vision"
+            | "text"
+            | "f16"
+            | "f32"
+            | "bf16"
+            | "fp16"
+            | "fp32"
+    ) || {
+        let lower = token.to_ascii_lowercase();
+        lower.starts_with('q')
+            && lower.len() > 1
+            && lower.chars().nth(1).is_some_and(|c| c.is_ascii_digit())
+    }
+}
+
+fn model_name_tokens(name: &str) -> Vec<String> {
+    let stem = name
+        .trim()
+        .trim_end_matches(".gguf")
+        .trim_end_matches(".GGUF")
+        .to_ascii_lowercase();
+    stem.split(|c: char| c == '-' || c == '_' || c == '.' || c.is_whitespace())
+        .filter(|token| {
+            let token = token.trim();
+            token.len() >= 3 && !is_noise_token(token)
+        })
+        .map(|token| token.to_string())
+        .collect()
+}
+
+fn score_mmproj_for_model(model_path: &Path, mmproj_filename: &str) -> i32 {
+    let model_stem = model_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or_default();
+    let model_tokens = model_name_tokens(model_stem);
+    let mmproj_tokens = model_name_tokens(mmproj_filename);
+    if model_tokens.is_empty() || mmproj_tokens.is_empty() {
+        return 0;
+    }
+
+    let model_set: HashSet<&str> = model_tokens.iter().map(String::as_str).collect();
+    let mut score = 0;
+    for token in &mmproj_tokens {
+        if model_set.contains(token.as_str()) {
+            score += if token.len() >= 4 { 3 } else { 2 };
+        }
+    }
+
+    let model_compact = model_tokens.join("");
+    let mmproj_compact = mmproj_tokens.join("");
+    if !model_compact.is_empty()
+        && !mmproj_compact.is_empty()
+        && (model_compact.contains(&mmproj_compact) || mmproj_compact.contains(&model_compact))
+    {
+        score += 4;
+    }
+
+    score
+}
+
 pub fn suggest_mmproj_for_model(model_path: &str, mmprojs: &[ModelInfo]) -> Option<String> {
     let model_path = Path::new(model_path);
     let model_dir = model_path.parent()?;
@@ -95,44 +167,32 @@ pub fn suggest_mmproj_for_model(model_path: &str, mmprojs: &[ModelInfo]) -> Opti
         .filter(|mmproj| {
             Path::new(&mmproj.path)
                 .parent()
-                .and_then(|parent| fs::canonicalize(parent).ok())
-                .map(|parent| parent == model_dir)
+                .map(|parent| {
+                    let parent = fs::canonicalize(parent).unwrap_or_else(|_| parent.to_path_buf());
+                    parent == model_dir
+                })
                 .unwrap_or(false)
         })
         .collect();
 
-    match same_dir.len() {
-        0 => None,
-        1 => Some(same_dir[0].path.clone()),
-        _ => {
-            let model_stem = model_path
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .unwrap_or_default()
-                .to_ascii_lowercase();
+    if same_dir.is_empty() {
+        return None;
+    }
 
-            let mut best = same_dir[0];
-            let mut best_score = 0_i32;
-            for mmproj in &same_dir {
-                let filename = mmproj.filename.to_ascii_lowercase();
-                let mut score = 0;
-                if filename.contains(&model_stem) {
-                    score += 10;
-                }
-                let stripped = filename.replace("mmproj", "").replace(['-', '_', '.'], "");
-                let model_compact = model_stem.replace(['-', '_', '.'], "");
-                if !model_compact.is_empty()
-                    && (stripped.contains(&model_compact) || model_compact.contains(&stripped))
-                {
-                    score += 5;
-                }
-                if score > best_score {
-                    best_score = score;
-                    best = mmproj;
-                }
-            }
-            Some(best.path.clone())
+    let mut best: Option<&ModelInfo> = None;
+    let mut best_score = 0;
+    for mmproj in same_dir {
+        let score = score_mmproj_for_model(model_path, &mmproj.filename);
+        if score > best_score {
+            best_score = score;
+            best = Some(mmproj);
         }
+    }
+
+    if best_score >= 2 {
+        best.map(|mmproj| mmproj.path.clone())
+    } else {
+        None
     }
 }
 
@@ -157,5 +217,31 @@ mod tests {
         assert!(is_mmproj_filename("mmproj-model-f16.gguf"));
         assert!(is_mmproj_filename("llava-mmproj.Q4_K_M.gguf"));
         assert!(!is_mmproj_filename("model-Q4_K_M.gguf"));
+    }
+
+    #[test]
+    fn does_not_pair_unrelated_mmproj_in_same_folder() {
+        let mmprojs = vec![ModelInfo {
+            path: r"C:\models\mmproj-F16.gguf".into(),
+            filename: "mmproj-F16.gguf".into(),
+            size_bytes: 1,
+        }];
+        assert_eq!(
+            suggest_mmproj_for_model(r"C:\models\gemma-4-E4B-it-Q4_K_M.gguf", &mmprojs),
+            None
+        );
+    }
+
+    #[test]
+    fn pairs_matching_gemma_mmproj() {
+        let mmprojs = vec![ModelInfo {
+            path: r"C:\models\mmproj-gemma-4-E4B-it-F16.gguf".into(),
+            filename: "mmproj-gemma-4-E4B-it-F16.gguf".into(),
+            size_bytes: 1,
+        }];
+        assert_eq!(
+            suggest_mmproj_for_model(r"C:\models\gemma-4-E4B-it-Q4_K_M.gguf", &mmprojs),
+            Some(r"C:\models\mmproj-gemma-4-E4B-it-F16.gguf".into())
+        );
     }
 }

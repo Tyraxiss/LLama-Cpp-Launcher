@@ -9,6 +9,7 @@ use std::sync::{
 use std::time::{Duration, Instant};
 use tauri::{Emitter, State};
 
+use crate::models::is_mmproj_filename;
 use crate::state::AppState;
 
 use crate::bindings::{
@@ -18,11 +19,9 @@ use crate::bindings::{
 const DOWNLOAD_WRITE_BUFFER_BYTES: usize = 1024 * 1024;
 const PROGRESS_EMIT_INTERVAL: Duration = Duration::from_millis(500);
 const PROGRESS_EMIT_BYTES: u64 = 1024 * 1024;
-const DEFAULT_HF_REVISION: &str = "main";
 
 #[derive(Debug, Deserialize)]
 struct HfRepoInfo {
-    #[allow(dead_code)]
     sha: String,
     siblings: Vec<HfSibling>,
 }
@@ -134,11 +133,47 @@ pub fn safe_filename(path: &str) -> Result<String, String> {
     Ok(filename)
 }
 
+/// Save generic mmproj companions with a repo suffix so E4B/12B packs do not overwrite each other.
+pub fn local_download_filename(repo: &str, remote_path: &str) -> Result<String, String> {
+    let base = safe_filename(remote_path)?;
+    if !is_mmproj_filename(&base) {
+        return Ok(base);
+    }
+
+    let repo_leaf = repo
+        .rsplit('/')
+        .next()
+        .unwrap_or(repo)
+        .trim()
+        .trim_end_matches("-GGUF")
+        .trim_end_matches("-gguf");
+    let suffix = repo_leaf
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '<' | '>' | '"' | '|' | '?' | '*' => '-',
+            other => other,
+        })
+        .collect::<String>();
+
+    if suffix.is_empty() {
+        return Ok(base);
+    }
+
+    let stem = base
+        .trim_end_matches(".gguf")
+        .trim_end_matches(".GGUF");
+    if stem.to_ascii_lowercase().contains(&suffix.to_ascii_lowercase()) {
+        return Ok(base);
+    }
+
+    Ok(format!("{stem}.{suffix}.gguf"))
+}
+
 fn shared_hf_client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
         reqwest::Client::builder()
-            .user_agent("LLama C++ Launcher/1.0.8")
+            .user_agent("LLama C++ Launcher/1.0.9")
             .pool_max_idle_per_host(4)
             .tcp_keepalive(Duration::from_secs(60))
             .build()
@@ -272,7 +307,6 @@ fn partial_metadata_matches(meta: &HfPartialMetadata, repo: &str, file_path: &st
     meta.repo == repo && meta.file_path == file_path
 }
 
-#[allow(dead_code)]
 fn metadata_matches(meta: &HfPartialMetadata, repo: &str, file_path: &str, revision: &str) -> bool {
     partial_metadata_matches(meta, repo, file_path) && meta.revision == revision
 }
@@ -290,7 +324,12 @@ fn part_file_size(part_path: &Path) -> u64 {
     fs::metadata(part_path).map(|meta| meta.len()).unwrap_or(0)
 }
 
-fn prepare_partial_download(part_path: &Path, repo: &str, file_path: &str) -> u64 {
+fn prepare_partial_download(
+    part_path: &Path,
+    repo: &str,
+    file_path: &str,
+    revision: &str,
+) -> u64 {
     if !part_path.exists() {
         return 0;
     }
@@ -302,7 +341,7 @@ fn prepare_partial_download(part_path: &Path, repo: &str, file_path: &str) -> u6
     }
 
     match read_partial_metadata(part_path) {
-        Some(meta) if partial_metadata_matches(&meta, repo, file_path) => resume_from,
+        Some(meta) if metadata_matches(&meta, repo, file_path, revision) => resume_from,
         _ => {
             remove_partial_artifacts(part_path);
             0
@@ -310,7 +349,23 @@ fn prepare_partial_download(part_path: &Path, repo: &str, file_path: &str) -> u6
     }
 }
 
-fn finalize_download(part_path: &Path, target_path: &Path) -> Result<(), String> {
+fn finalize_download(
+    part_path: &Path,
+    target_path: &Path,
+    downloaded_bytes: u64,
+    total_bytes: Option<u64>,
+) -> Result<(), String> {
+    match total_bytes {
+        Some(expected) if downloaded_bytes != expected => {
+            return Err(format!(
+                "Download incomplete ({downloaded_bytes} of {expected} bytes). Partial file kept for resume."
+            ));
+        }
+        None if downloaded_bytes == 0 => {
+            return Err("Download produced an empty file. Partial file kept for resume.".into());
+        }
+        _ => {}
+    }
     fs::rename(part_path, target_path)
         .map_err(|e| format!("Failed to finalize download: {}", e))?;
     let _ = fs::remove_file(part_meta_path(part_path));
@@ -326,7 +381,7 @@ pub async fn get_hf_partial_download(
 ) -> Result<Option<HfPartialDownload>, String> {
     let _ = token;
     let repo = validate_hf_repo(&repo)?;
-    let filename = safe_filename(&file_path)?;
+    let filename = local_download_filename(&repo, &file_path)?;
     let target_dir = PathBuf::from(&target_dir);
     if !target_dir.is_dir() {
         return Ok(None);
@@ -356,11 +411,28 @@ pub async fn get_hf_partial_download(
 }
 
 #[tauri::command]
-pub fn discard_hf_partial_download(target_dir: String, file_path: String) -> Result<(), String> {
-    let filename = safe_filename(&file_path)?;
-    let part_path = PathBuf::from(&target_dir).join(format!("{}.part", filename));
-    if part_path.exists() {
-        remove_partial_artifacts(&part_path);
+pub fn discard_hf_partial_download(
+    target_dir: String,
+    file_path: String,
+    repo: Option<String>,
+) -> Result<(), String> {
+    let target = PathBuf::from(&target_dir);
+    let mut candidates = vec![safe_filename(&file_path)?];
+    if let Some(repo) = repo {
+        if let Ok(validated) = validate_hf_repo(&repo) {
+            if let Ok(local) = local_download_filename(&validated, &file_path) {
+                if !candidates.iter().any(|name| name == &local) {
+                    candidates.push(local);
+                }
+            }
+        }
+    }
+
+    for filename in candidates {
+        let part_path = target.join(format!("{}.part", filename));
+        if part_path.exists() {
+            remove_partial_artifacts(&part_path);
+        }
     }
     Ok(())
 }
@@ -372,7 +444,7 @@ pub async fn download_hf_model(
     config: HfDownloadConfig,
 ) -> Result<String, String> {
     let repo = validate_hf_repo(&config.repo)?;
-    let filename = safe_filename(&config.file_path)?;
+    let filename = local_download_filename(&repo, &config.file_path)?;
     let target_dir = PathBuf::from(&config.target_dir);
     if !target_dir.is_dir() {
         return Err("Target model folder was not found.".into());
@@ -383,14 +455,7 @@ pub async fn download_hf_model(
         return Err("That model file already exists in the target folder.".into());
     }
     let part_path = target_dir.join(format!("{}.part", filename));
-
     let existing_meta = read_partial_metadata(&part_path);
-    let revision = existing_meta
-        .as_ref()
-        .filter(|meta| partial_metadata_matches(meta, &repo, &config.file_path))
-        .map(|meta| meta.revision.clone())
-        .unwrap_or_else(|| DEFAULT_HF_REVISION.to_string());
-    let resume_from = prepare_partial_download(&part_path, &repo, &config.file_path);
 
     let cancel_flag = Arc::new(AtomicBool::new(false));
     {
@@ -402,6 +467,12 @@ pub async fn download_hf_model(
     }
 
     let result: Result<String, String> = async {
+        // Pin to the repo's current commit so resumes cannot continue onto a moved `main`.
+        let repo_info = fetch_hf_repo_info(&repo, config.token.as_deref()).await?;
+        let revision = repo_info.sha.clone();
+        let resume_from =
+            prepare_partial_download(&part_path, &repo, &config.file_path, &revision);
+
         let file_url = format!(
             "https://huggingface.co/{}/resolve/{}/{}?download=true",
             repo,
@@ -414,13 +485,15 @@ pub async fn download_hf_model(
             repo: repo.clone(),
             file_path: config.file_path.clone(),
             revision: revision.clone(),
-            total_bytes: existing_meta.and_then(|meta| meta.total_bytes),
+            total_bytes: existing_meta
+                .filter(|meta| metadata_matches(meta, &repo, &config.file_path, &revision))
+                .and_then(|meta| meta.total_bytes),
         };
 
         if resume_from > 0 {
             if let Some(total_bytes) = metadata.total_bytes {
                 if resume_from >= total_bytes {
-                    finalize_download(&part_path, &target_path)?;
+                    finalize_download(&part_path, &target_path, resume_from, Some(total_bytes))?;
                     let mut last_emitted_bytes = total_bytes;
                     emit_download_progress(
                         &app_handle,
@@ -574,7 +647,7 @@ pub async fn download_hf_model(
         file.flush()
             .map_err(|e| format!("Failed to finish writing download: {}", e))?;
         drop(file);
-        finalize_download(&part_path, &target_path)?;
+        finalize_download(&part_path, &target_path, downloaded_bytes, total_bytes)?;
         emit_download_progress(
             &app_handle,
             HfDownloadProgress {
@@ -635,8 +708,8 @@ pub fn cancel_hf_download(state: State<'_, AppState>) -> Result<String, String> 
 #[cfg(test)]
 mod tests {
     use super::{
-        metadata_matches, parse_hf_model_spec, part_meta_path, percent_encode_path, safe_filename,
-        HfPartialMetadata,
+        local_download_filename, metadata_matches, parse_hf_model_spec, part_meta_path,
+        percent_encode_path, safe_filename, HfPartialMetadata,
     };
     use std::path::PathBuf;
 
@@ -681,6 +754,22 @@ mod tests {
         assert_eq!(
             safe_filename("model-Q4_K_M.gguf").unwrap(),
             "model-Q4_K_M.gguf"
+        );
+    }
+
+    #[test]
+    fn local_mmproj_filename_includes_repo_leaf() {
+        assert_eq!(
+            local_download_filename("unsloth/gemma-4-E4B-it-GGUF", "mmproj-F16.gguf").unwrap(),
+            "mmproj-F16.gemma-4-E4B-it.gguf"
+        );
+        assert_eq!(
+            local_download_filename("unsloth/gemma-4-12b-it-GGUF", "mmproj-F16.gguf").unwrap(),
+            "mmproj-F16.gemma-4-12b-it.gguf"
+        );
+        assert_eq!(
+            local_download_filename("owner/model-GGUF", "gemma-4-E4B-it-Q4_K_M.gguf").unwrap(),
+            "gemma-4-E4B-it-Q4_K_M.gguf"
         );
     }
 

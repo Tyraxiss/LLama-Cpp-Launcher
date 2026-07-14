@@ -30,6 +30,8 @@ interface HfDownloadPanelProps {
   progress: HfDownloadProgress | null;
   partialDownload: HfPartialDownload | null;
   canResume: boolean;
+  autoDownloadMmproj: boolean;
+  matchedMmproj: HfGgufFile | null;
   formatBytes: (bytes: number) => string;
   onRepoChange: (value: string) => void;
   onTokenChange: (value: string) => void;
@@ -38,6 +40,7 @@ interface HfDownloadPanelProps {
   onLookupFiles: () => void;
   onBrowseTargetDir: () => void;
   onEnqueueDownload: () => void;
+  onAutoDownloadMmprojChange: (enabled: boolean) => void;
   onRemoveQueued: (id: string) => void;
   onRetryQueued: (id: string) => void;
   onClearFinishedQueue: () => void;
@@ -73,6 +76,8 @@ export function HfDownloadPanel({
   progress,
   partialDownload,
   canResume,
+  autoDownloadMmproj,
+  matchedMmproj,
   formatBytes,
   onRepoChange,
   onTokenChange,
@@ -81,6 +86,7 @@ export function HfDownloadPanel({
   onLookupFiles,
   onBrowseTargetDir,
   onEnqueueDownload,
+  onAutoDownloadMmprojChange,
   onRemoveQueued,
   onRetryQueued,
   onClearFinishedQueue,
@@ -266,6 +272,41 @@ export function HfDownloadPanel({
               {selectedFile.size_bytes ? formatBytes(selectedFile.size_bytes) : "size unknown"}
             </strong>
           </div>
+        )}
+
+        <div className="toggle-row" style={{ alignItems: "flex-start" }}>
+          <span>
+            <span className="form-label" style={{ display: "block" }}>
+              Auto-download matching mmproj
+            </span>
+            <span className="text-muted" style={{ display: "block", fontSize: 10, marginTop: 2 }}>
+              Queues a same-repo vision projector (name match, or mmproj-F16 when that is all the
+              repo ships). Leave off for text-only models.
+            </span>
+          </span>
+          <label className="toggle" style={{ marginTop: 4 }}>
+            <input
+              type="checkbox"
+              checked={autoDownloadMmproj}
+              onChange={(e) => onAutoDownloadMmprojChange(e.target.checked)}
+            />
+            <span className="toggle-slider" />
+          </label>
+        </div>
+
+        {autoDownloadMmproj && selectedFile && matchedMmproj && (
+          <div className="selected-file-summary muted">
+            <span>Also queue: {matchedMmproj.filename}</span>
+            <strong>
+              {matchedMmproj.size_bytes ? formatBytes(matchedMmproj.size_bytes) : "size unknown"}
+            </strong>
+          </div>
+        )}
+
+        {autoDownloadMmproj && selectedFile && !matchedMmproj && files.length > 0 && (
+          <p className="text-muted" style={{ fontSize: 11, margin: 0 }}>
+            No matching mmproj found in this repo for the selected file.
+          </p>
         )}
 
         {queue.length > 0 && (

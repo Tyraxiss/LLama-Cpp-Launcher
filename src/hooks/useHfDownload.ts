@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -13,10 +13,13 @@ import type {
   ModelScanResult,
 } from "../types";
 import {
+  loadAutoDownloadMmproj,
   loadDownloadHistory,
   isMmprojFilename,
   samePath,
+  saveAutoDownloadMmproj,
   saveDownloadHistory,
+  suggestMmprojFromHfFiles,
   suggestMmprojPath,
 } from "../utils/config";
 import type { ToastType } from "./useToast";
@@ -79,6 +82,17 @@ export function useHfDownload({
   const [downloadQueue, setDownloadQueue] = useState<HfDownloadQueueItem[]>([]);
   const [downloadHistory, setDownloadHistory] =
     useState<DownloadHistoryItem[]>(loadDownloadHistory);
+  const [autoDownloadMmproj, setAutoDownloadMmprojState] = useState(loadAutoDownloadMmproj);
+
+  const setAutoDownloadMmproj = useCallback((enabled: boolean) => {
+    setAutoDownloadMmprojState(enabled);
+    saveAutoDownloadMmproj(enabled);
+  }, []);
+
+  const matchedMmproj = useMemo(() => {
+    if (!autoDownloadMmproj || !hfSelectedFile) return null;
+    return suggestMmprojFromHfFiles(hfSelectedFile, hfFiles);
+  }, [autoDownloadMmproj, hfFiles, hfSelectedFile]);
 
   const buildCurrentConfigRef = useRef(buildCurrentConfig);
   const saveAppConfigRef = useRef(saveAppConfig);
@@ -136,18 +150,48 @@ export function useHfDownload({
   }, []);
 
   useEffect(() => {
+    let lastEmit = 0;
+    let pending: HfDownloadProgress | null = null;
+    let flushTimer: number | null = null;
+
+    const flush = () => {
+      if (!pending) return;
+      setHfProgress(pending);
+      pending = null;
+      flushTimer = null;
+    };
+
     const unlisten = listen<HfDownloadProgress>("hf-download-progress", (event) => {
       const payload = event.payload;
-      setHfProgress(payload);
       if (payload.status === "downloading") {
         setHfDownloading(true);
+        const now = Date.now();
+        pending = payload;
+        if (now - lastEmit >= 250) {
+          lastEmit = now;
+          flush();
+        } else if (flushTimer === null) {
+          flushTimer = window.setTimeout(() => {
+            lastEmit = Date.now();
+            flush();
+          }, 250);
+        }
+        return;
       }
+
+      if (flushTimer !== null) {
+        window.clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+      pending = null;
+      setHfProgress(payload);
       if (["complete", "cancelled", "error"].includes(payload.status)) {
         setHfDownloading(false);
       }
     });
     return () => {
-      unlisten.then((fn) => fn());
+      if (flushTimer !== null) window.clearTimeout(flushTimer);
+      void unlisten.then((fn) => fn());
     };
   }, []);
 
@@ -155,8 +199,8 @@ export function useHfDownload({
     try {
       const partial = (await invoke("get_hf_partial_download", {
         repo: item.repo,
-        file_path: item.file_path,
-        target_dir: item.target_dir,
+        filePath: item.file_path,
+        targetDir: item.target_dir,
         token: item.token,
       })) as HfPartialDownload | null;
       const form = hfFormRef.current;
@@ -180,8 +224,8 @@ export function useHfDownload({
     try {
       const partial = (await invoke("get_hf_partial_download", {
         repo: repo.trim(),
-        file_path: selectedFile,
-        target_dir: targetDir,
+        filePath: selectedFile,
+        targetDir: targetDir,
         token: token.trim() || null,
       })) as HfPartialDownload | null;
       setHfPartialDownload(partial);
@@ -203,8 +247,8 @@ export function useHfDownload({
       try {
         const partial = (await invoke("get_hf_partial_download", {
           repo: hfRepo.trim(),
-          file_path: hfSelectedFile,
-          target_dir: hfTargetDir,
+          filePath: hfSelectedFile,
+          targetDir: hfTargetDir,
           token: hfToken.trim() || null,
         })) as HfPartialDownload | null;
         if (!cancelled) {
@@ -223,14 +267,19 @@ export function useHfDownload({
   }, [canCheckPartial, hfRepo, hfSelectedFile, hfTargetDir, hfToken]);
 
   const recordCompletedDownload = useCallback(
-    async (item: HfDownloadQueueItem, downloadedPath: string) => {
+    async (item: HfDownloadQueueItem, downloadedPath: string, rescan: boolean) => {
       const cfg = buildCurrentConfigRef.current();
       const dirs = cfg.model_directories.some((dir) => samePath(dir, item.target_dir))
         ? cfg.model_directories
         : [...cfg.model_directories, item.target_dir];
-      const scan = (await invoke("scan_models", { directories: dirs })) as ModelScanResult;
-      setModelsRef.current(scan.models);
-      setMmprojsRef.current(scan.mmprojs);
+
+      let scanMmprojs = [] as ModelInfo[];
+      if (rescan) {
+        const scan = (await invoke("scan_models", { directories: dirs })) as ModelScanResult;
+        scanMmprojs = scan.mmprojs;
+        setModelsRef.current(scan.models);
+        setMmprojsRef.current(scan.mmprojs);
+      }
 
       const downloadedName = downloadedPath.split(/[/\\]/).pop() || downloadedPath;
       const isMmproj = isMmprojFilename(downloadedName);
@@ -240,11 +289,18 @@ export function useHfDownload({
       if (!isMmproj) {
         nextModel = downloadedPath;
         setModelPathRef.current(downloadedPath);
-        nextMmproj = suggestMmprojPath(downloadedPath, scan.mmprojs);
-        setMmprojPathRef.current(nextMmproj ?? "");
+        if (rescan) {
+          nextMmproj = suggestMmprojPath(downloadedPath, scanMmprojs);
+          setMmprojPathRef.current(nextMmproj ?? "");
+        }
       } else if (cfg.last_model) {
-        const suggested = suggestMmprojPath(cfg.last_model, scan.mmprojs);
-        if (suggested === downloadedPath) {
+        if (rescan) {
+          const suggested = suggestMmprojPath(cfg.last_model, scanMmprojs);
+          if (suggested === downloadedPath) {
+            nextMmproj = downloadedPath;
+            setMmprojPathRef.current(downloadedPath);
+          }
+        } else {
           nextMmproj = downloadedPath;
           setMmprojPathRef.current(downloadedPath);
         }
@@ -323,7 +379,7 @@ export function useHfDownload({
           );
 
           try {
-            await recordCompletedDownload(next, downloadedPath);
+            await recordCompletedDownload(next, downloadedPath, false);
           } catch (error) {
             showToastRef.current(
               `Downloaded but failed to update model library: ${String(error)}`,
@@ -386,6 +442,27 @@ export function useHfDownload({
       if (remaining.length === 0) {
         const completed = downloadQueueRef.current.some((item) => item.status === "complete");
         if (completed) {
+          try {
+            const cfg = buildCurrentConfigRef.current();
+            if (cfg.model_directories.length > 0) {
+              const scan = (await invoke("scan_models", {
+                directories: cfg.model_directories,
+              })) as ModelScanResult;
+              setModelsRef.current(scan.models);
+              setMmprojsRef.current(scan.mmprojs);
+              if (cfg.last_model) {
+                const suggested = suggestMmprojPath(cfg.last_model, scan.mmprojs);
+                if (suggested && suggested !== cfg.last_mmproj) {
+                  setMmprojPathRef.current(suggested);
+                  await saveAppConfigRef.current(
+                    buildCurrentConfigRef.current(undefined, { mmprojPath: suggested }),
+                  );
+                }
+              }
+            }
+          } catch {
+            // Scan after queue is best-effort.
+          }
           showToastRef.current("Queued downloads finished", "success");
         }
         syncQueue((prev) => prev.filter((item) => item.status !== "complete"));
@@ -471,13 +548,41 @@ export function useHfDownload({
       hfSelectedFile.split("/").pop() ||
       hfSelectedFile;
 
-    syncQueue((prev) => [
-      ...prev,
-      createQueueItem(hfRepo, hfSelectedFile, filename, hfTargetDir, hfToken.trim() || null),
-    ]);
-    showToast("Added to download queue", "success");
+    const token = hfToken.trim() || null;
+    const itemsToAdd = [createQueueItem(hfRepo, hfSelectedFile, filename, hfTargetDir, token)];
+
+    if (autoDownloadMmproj && !isMmprojFilename(filename)) {
+      const mmproj = suggestMmprojFromHfFiles(hfSelectedFile, hfFiles);
+      if (mmproj) {
+        const mmprojKey = queueItemKey(hfRepo, mmproj.path, hfTargetDir);
+        const alreadyQueued = downloadQueueRef.current.some(
+          (item) =>
+            queueItemKey(item.repo, item.file_path, item.target_dir) === mmprojKey &&
+            (item.status === "pending" ||
+              item.status === "downloading" ||
+              item.status === "complete"),
+        );
+        const alreadyAdding = itemsToAdd.some(
+          (item) => queueItemKey(item.repo, item.file_path, item.target_dir) === mmprojKey,
+        );
+        if (!alreadyQueued && !alreadyAdding) {
+          itemsToAdd.push(
+            createQueueItem(hfRepo, mmproj.path, mmproj.filename, hfTargetDir, token),
+          );
+        }
+      }
+    }
+
+    syncQueue((prev) => [...prev, ...itemsToAdd]);
+    showToast(
+      itemsToAdd.length > 1
+        ? `Queued model + mmproj (${itemsToAdd[1]?.filename})`
+        : "Added to download queue",
+      "success",
+    );
     kickDownloadQueue();
   }, [
+    autoDownloadMmproj,
     hfFiles,
     hfRepo,
     hfSelectedFile,
@@ -552,8 +657,9 @@ export function useHfDownload({
     if (!hfSelectedFile || !hfTargetDir) return;
     try {
       await invoke("discard_hf_partial_download", {
-        target_dir: hfTargetDir,
-        file_path: hfSelectedFile,
+        targetDir: hfTargetDir,
+        filePath: hfSelectedFile,
+        repo: hfRepo.trim() || null,
       });
       setHfPartialDownload(null);
       setHfProgress(null);
@@ -561,7 +667,7 @@ export function useHfDownload({
     } catch (error) {
       showToast(String(error), "error");
     }
-  }, [hfSelectedFile, hfTargetDir, showToast]);
+  }, [hfRepo, hfSelectedFile, hfTargetDir, showToast]);
 
   const clearDownloadHistory = useCallback(() => {
     setDownloadHistory([]);
@@ -599,6 +705,9 @@ export function useHfDownload({
     hfPartialDownload: canCheckPartial ? hfPartialDownload : null,
     downloadQueue,
     downloadHistory,
+    autoDownloadMmproj,
+    setAutoDownloadMmproj,
+    matchedMmproj,
     browseHfTargetDir,
     lookupHfFiles,
     enqueueHfDownload,

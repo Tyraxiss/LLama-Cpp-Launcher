@@ -142,6 +142,7 @@ pub async fn update_open_webui(
 
         use tauri_plugin_shell::process::CommandEvent;
 
+        let mut succeeded = false;
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(bytes) | CommandEvent::Stderr(bytes) => {
@@ -155,6 +156,7 @@ pub async fn update_open_webui(
                 }
                 CommandEvent::Terminated(payload) => {
                     if payload.code == Some(0) {
+                        succeeded = true;
                         break;
                     }
                     return Err(format!(
@@ -162,11 +164,15 @@ pub async fn update_open_webui(
                         payload
                             .code
                             .map(|code| format!(" (exit code {code})"))
-                            .unwrap_or_default()
+                            .unwrap_or_else(|| " (terminated without exit code)".into())
                     ));
                 }
                 _ => {}
             }
+        }
+
+        if !succeeded {
+            return Err("pip upgrade ended without a successful exit status.".into());
         }
 
         let version = read_open_webui_version(&venv)?;
@@ -178,8 +184,9 @@ pub async fn update_open_webui(
     }
     .await;
 
-    if let Ok(mut updating) = state.open_webui_updating.lock() {
-        *updating = false;
+    match state.open_webui_updating.lock() {
+        Ok(mut updating) => *updating = false,
+        Err(poisoned) => *poisoned.into_inner() = false,
     }
 
     result
@@ -234,6 +241,8 @@ pub async fn start_open_webui(
         .env("OPENAI_API_BASE_URLS", &llama_base_url)
         .env("OPENAI_API_KEYS", "sk-local")
         .env("ENABLE_OLLAMA_API", "False")
+        .env("CORS_ALLOW_ORIGIN", "*")
+        .env("USER_AGENT", "LLama C++ Launcher/1.0.9")
         .env("PYTHONUTF8", "1")
         .env("PYTHONIOENCODING", "utf-8")
         .spawn()
@@ -284,16 +293,32 @@ pub async fn start_open_webui(
 }
 
 #[tauri::command]
-pub fn stop_open_webui(state: State<'_, AppState>) -> Result<String, String> {
+pub fn stop_open_webui(state: State<'_, AppState>, port: Option<u16>) -> Result<String, String> {
     let mut lock = state.open_webui_process.lock().map_err(|e| e.to_string())?;
     if let Some(child) = lock.take() {
         child
             .kill()
             .map_err(|e| format!("Failed to kill Open WebUI process: {}", e))?;
-        Ok("Open WebUI stopped".into())
-    } else {
-        Err("Open WebUI is not running".into())
+        // Also clear any leftover listeners (open-webui can respawn workers).
+        if let Some(port) = port {
+            let _ = crate::process_util::kill_listeners_on_port(port);
+        }
+        return Ok("Open WebUI stopped".into());
     }
+
+    let Some(port) = port else {
+        return Err("Open WebUI is not managed by the launcher".into());
+    };
+
+    let killed = crate::process_util::kill_listeners_on_port(port)?;
+    if killed == 0 {
+        return Err(format!(
+            "No Open WebUI process handle, and nothing is listening on port {port}."
+        ));
+    }
+    Ok(format!(
+        "Open WebUI was no longer tracked, but stopped {killed} process(es) on port {port}."
+    ))
 }
 
 #[tauri::command]

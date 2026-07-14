@@ -2,6 +2,38 @@
 
 All notable changes to LLama C++ Launcher are documented here.
 
+## [Unreleased]
+
+## [1.0.9] - 2026-07-14
+
+### Added
+
+- **In-app llama.cpp updates** from GitHub Releases: detect the current Windows backend (CPU / CUDA / Vulkan / HIP), check the latest ggml-org/llama.cpp tag, download the matching zip (plus CUDA runtime DLLs when needed), and install it next to the selected llama-server.exe.
+- **Auto-download matching mmproj** (opt-in on the Downloads tab): when enabled, queuing a model GGUF also queues a matching vision projector from the same Hugging Face repo.
+- Dedicated **Settings** tab for llama.cpp and Open WebUI update controls.
+
+### Fixed
+
+- **Open WebUI version/update IPC** again uses Tauri camelCase envPath so version checks and pip upgrades can run.
+- **Vision projector auto-pair** no longer selects a random same-folder mmproj (for example a generic mmproj-F16.gguf next to Gemma 4). Matching now requires shared name tokens, and an intentional **None** is no longer overwritten on startup.
+- **HF resume/discard IPC** uses camelCase ilePath / argetDir; incomplete downloads are not finalized; resumes require the same revision.
+- **llama.cpp updates** persist backend/tag preferences, stage installs before copy, block start during updates, and remove stale backend DLLs when switching backends.
+- **Recent Downloads** no longer select an mmproj as the main model.
+- Model scan accepts .GGUF case-insensitively; mmproj scoring ignores short noise tokens.
+- **HF auto-download mmproj** recognizes generic same-repo companions like mmproj-F16.gguf (Unsloth Gemma 4), preferring F16 over BF16/F32 when names do not share model tokens.
+- **Generic mmproj downloads** are saved with a repo suffix (for example mmproj-F16.gemma-4-E4B-it.gguf) so E4B and 12B packs in the same folder do not overwrite each other.
+- **Server start** rejects an mmproj whose embedding size does not match the selected text model, with a clear error instead of a late llama.cpp crash.
+- **Open WebUI status** no longer flips to Stopped when the process handle is lost but the port is still healthy; Stop also kills orphan listeners on the configured port.
+- **Open WebUI Stop** is no longer undone by health auto-revive.
+- Health checks require a real HTTP success/redirect status instead of any HTTP/ response.
+- Bootstrap config saves merge live UI state so edits during the initial model scan are not overwritten.
+- Error toasts stay longer, pause on hover, and support copy/dismiss.
+
+### Changed
+
+- **llama.cpp and Open WebUI update controls** moved from the Server tab to Settings to reduce main-screen clutter.
+- Startup is lighter: Open WebUI/PyPI and llama.cpp update checks are deferred; resource stats poll less often and skip redundant UI updates; HF download progress is throttled; model library rescans once per download queue instead of after every file.
+
 ## [1.0.8] - 2026-07-08
 
 ### Fixed
