@@ -159,10 +159,11 @@ pub fn local_download_filename(repo: &str, remote_path: &str) -> Result<String, 
         return Ok(base);
     }
 
-    let stem = base
-        .trim_end_matches(".gguf")
-        .trim_end_matches(".GGUF");
-    if stem.to_ascii_lowercase().contains(&suffix.to_ascii_lowercase()) {
+    let stem = base.trim_end_matches(".gguf").trim_end_matches(".GGUF");
+    if stem
+        .to_ascii_lowercase()
+        .contains(&suffix.to_ascii_lowercase())
+    {
         return Ok(base);
     }
 
@@ -324,12 +325,7 @@ fn part_file_size(part_path: &Path) -> u64 {
     fs::metadata(part_path).map(|meta| meta.len()).unwrap_or(0)
 }
 
-fn prepare_partial_download(
-    part_path: &Path,
-    repo: &str,
-    file_path: &str,
-    revision: &str,
-) -> u64 {
+fn prepare_partial_download(part_path: &Path, repo: &str, file_path: &str, revision: &str) -> u64 {
     if !part_path.exists() {
         return 0;
     }
@@ -470,8 +466,7 @@ pub async fn download_hf_model(
         // Pin to the repo's current commit so resumes cannot continue onto a moved `main`.
         let repo_info = fetch_hf_repo_info(&repo, config.token.as_deref()).await?;
         let revision = repo_info.sha.clone();
-        let resume_from =
-            prepare_partial_download(&part_path, &repo, &config.file_path, &revision);
+        let resume_from = prepare_partial_download(&part_path, &repo, &config.file_path, &revision);
 
         let file_url = format!(
             "https://huggingface.co/{}/resolve/{}/{}?download=true",

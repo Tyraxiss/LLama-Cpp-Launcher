@@ -15,7 +15,9 @@ pub async fn start_llama_server(
     {
         let updating = state.llama_cpp_updating.lock().map_err(|e| e.to_string())?;
         if *updating {
-            return Err("Wait for the llama.cpp update to finish before starting the server.".into());
+            return Err(
+                "Wait for the llama.cpp update to finish before starting the server.".into(),
+            );
         }
     }
 

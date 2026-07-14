@@ -11,7 +11,8 @@ pub struct GgufInfo {
 }
 
 pub fn read_gguf_info(path: &Path) -> Result<GgufInfo, String> {
-    let mut file = File::open(path).map_err(|e| format!("Failed to open {}: {e}", path.display()))?;
+    let mut file =
+        File::open(path).map_err(|e| format!("Failed to open {}: {e}", path.display()))?;
     let mut magic = [0u8; 4];
     file.read_exact(&mut magic)
         .map_err(|e| format!("Failed to read GGUF magic: {e}"))?;
@@ -21,7 +22,10 @@ pub fn read_gguf_info(path: &Path) -> Result<GgufInfo, String> {
 
     let version = read_u32(&mut file)?;
     if !(2..=3).contains(&version) {
-        return Err(format!("Unsupported GGUF version {version} in {}", path.display()));
+        return Err(format!(
+            "Unsupported GGUF version {version} in {}",
+            path.display()
+        ));
     }
 
     let _tensor_count = read_u64(&mut file)?;
@@ -67,9 +71,7 @@ pub fn mmproj_compatible(model: &GgufInfo, mmproj: &GgufInfo) -> Result<(), Stri
     let Some(model_embd) = model.embedding_length else {
         return Ok(());
     };
-    let mmproj_embd = mmproj
-        .vision_projection_dim
-        .or(mmproj.embedding_length);
+    let mmproj_embd = mmproj.vision_projection_dim.or(mmproj.embedding_length);
     let Some(mmproj_embd) = mmproj_embd else {
         return Ok(());
     };
