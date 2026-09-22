@@ -201,7 +201,10 @@ fn supported_backends(assets: &[GithubAsset]) -> Vec<LlamaCppBackendOption> {
 }
 
 async fn fetch_latest_release() -> Result<GithubRelease, String> {
-    let url = format!("https://api.github.com/repos/{LLAMA_REPO}/releases/latest");
+    // `/releases/latest` only returns the latest stable release. llama.cpp publishes
+    // the downloadable Windows builds on its nightly/tagged build release instead,
+    // so inspect recent releases and select the newest one containing supported assets.
+    let url = format!("https://api.github.com/repos/{LLAMA_REPO}/releases?per_page=30");
     let response = github_client()?
         .get(url)
         .header(reqwest::header::ACCEPT, "application/vnd.github+json")
@@ -216,10 +219,15 @@ async fn fetch_latest_release() -> Result<GithubRelease, String> {
         ));
     }
 
-    response
-        .json::<GithubRelease>()
+    let releases = response
+        .json::<Vec<GithubRelease>>()
         .await
-        .map_err(|e| format!("Failed to parse GitHub release payload: {e}"))
+        .map_err(|e| format!("Failed to parse GitHub release payload: {e}"))?;
+
+    releases
+        .into_iter()
+        .find(|release| !supported_backends(&release.assets).is_empty())
+        .ok_or_else(|| "No recent llama.cpp release contains supported Windows assets.".into())
 }
 
 fn emit_progress(app: &tauri::AppHandle, progress: LlamaCppUpdateProgress) {
