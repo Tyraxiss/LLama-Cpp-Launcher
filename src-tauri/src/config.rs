@@ -74,7 +74,9 @@ pub fn default_open_webui_venv_path() -> Option<String> {
 
     common_paths
         .into_iter()
-        .find(|path| open_webui_executable(path).is_file())
+        // Detect the interpreter even if the console script is missing; the
+        // Settings update can recreate that script with pip.
+        .find(|path| open_webui_python(path).is_file())
         .map(|path| path.to_string_lossy().to_string())
 }
 

@@ -9,20 +9,56 @@ use crate::config::{open_webui_executable, open_webui_python};
 use crate::process_util::run_hidden_command_in;
 use crate::state::{AppState, MAX_LOG_LINES};
 
-fn validate_open_webui_venv(venv_path: &Path) -> Result<PathBuf, String> {
+fn validate_open_webui_python(venv_path: &Path) -> Result<PathBuf, String> {
     if !venv_path.is_dir() {
-        return Err("Selected Open WebUI venv folder was not found.".into());
+        return Err(format!(
+            "Selected Open WebUI venv folder was not found: {}",
+            venv_path.display()
+        ));
     }
 
     let python = open_webui_python(venv_path);
     if !python.is_file() {
-        return Err("Python was not found in the selected venv.".into());
+        return Err(format!(
+            "Python was not found in the selected venv: {}",
+            python.display()
+        ));
     }
 
+    let version = run_hidden_command_in(&python, &["--version"], venv_path)?;
+    if !version.status.success() {
+        let detail = String::from_utf8_lossy(&version.stderr).trim().to_string();
+        return Err(if detail.is_empty() {
+            format!(
+                "The venv Python interpreter could not start: {}",
+                python.display()
+            )
+        } else {
+            format!("The venv Python interpreter could not start: {detail}")
+        });
+    }
+
+    let pip = run_hidden_command_in(&python, &["-m", "pip", "--version"], venv_path)?;
+    if !pip.status.success() {
+        let detail = String::from_utf8_lossy(&pip.stderr).trim().to_string();
+        return Err(if detail.is_empty() {
+            "pip is not available in the selected Open WebUI venv.".into()
+        } else {
+            format!("pip is not available in the selected Open WebUI venv: {detail}")
+        });
+    }
+
+    Ok(python)
+}
+
+fn validate_open_webui_venv(venv_path: &Path) -> Result<PathBuf, String> {
+    let python = validate_open_webui_python(venv_path)?;
     if !open_webui_executable(venv_path).is_file() {
-        return Err("open-webui executable was not found in the selected venv.".into());
+        return Err(format!(
+            "open-webui executable was not found in the selected venv: {}",
+            open_webui_executable(venv_path).display()
+        ));
     }
-
     Ok(python)
 }
 
@@ -119,7 +155,9 @@ pub async fn update_open_webui(
     }
 
     let venv = PathBuf::from(&venv_path);
-    let python = match validate_open_webui_venv(&venv) {
+    // Updating may be the operation that repairs a missing console-script executable,
+    // so only require the venv's Python interpreter here.
+    let python = match validate_open_webui_python(&venv) {
         Ok(python) => python,
         Err(error) => {
             if let Ok(mut updating) = state.open_webui_updating.lock() {
@@ -135,7 +173,14 @@ pub async fn update_open_webui(
         let shell = app_handle.shell();
         let (mut rx, _child) = shell
             .command(python.to_string_lossy().to_string())
-            .args(["-m", "pip", "install", "--upgrade", "open-webui"])
+            .args([
+                "-m",
+                "pip",
+                "install",
+                "--disable-pip-version-check",
+                "--upgrade",
+                "open-webui",
+            ])
             .current_dir(&venv)
             .spawn()
             .map_err(|e| format!("Failed to start pip upgrade: {}", e))?;
@@ -143,29 +188,33 @@ pub async fn update_open_webui(
         use tauri_plugin_shell::process::CommandEvent;
 
         let mut succeeded = false;
+        let mut last_output = String::new();
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(bytes) | CommandEvent::Stderr(bytes) => {
                     let text = String::from_utf8_lossy(&bytes).trim().to_string();
                     if !text.is_empty() {
+                        last_output = text.clone();
                         append_open_webui_log(&app_handle, &text);
                     }
                 }
                 CommandEvent::Error(message) => {
-                    return Err(message);
+                    return Err(format!("pip could not start: {message}"));
                 }
                 CommandEvent::Terminated(payload) => {
                     if payload.code == Some(0) {
                         succeeded = true;
                         break;
                     }
-                    return Err(format!(
-                        "pip upgrade failed{}",
-                        payload
-                            .code
-                            .map(|code| format!(" (exit code {code})"))
-                            .unwrap_or_else(|| " (terminated without exit code)".into())
-                    ));
+                    let status = payload
+                        .code
+                        .map(|code| format!("exit code {code}"))
+                        .unwrap_or_else(|| "terminated without exit code".into());
+                    return Err(if last_output.is_empty() {
+                        format!("pip upgrade failed ({status})")
+                    } else {
+                        format!("pip upgrade failed ({status}): {last_output}")
+                    });
                 }
                 _ => {}
             }
