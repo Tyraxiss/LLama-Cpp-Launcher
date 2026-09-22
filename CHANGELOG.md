@@ -4,6 +4,14 @@ All notable changes to LLama C++ Launcher are documented here.
 
 ## [Unreleased]
 
+## [1.0.10] - 2026-09-22
+
+### Fixed
+
+- Corrected Windows release packaging so GitHub Actions publishes the NSIS installer from the current build.
+- Improved llama.cpp Windows asset discovery for backend-specific updates and CUDA runtime files.
+- Fixed Rust formatting and CI formatting checks.
+
 ## [1.0.9] - 2026-07-14
 
 ### Added
