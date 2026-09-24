@@ -1,10 +1,13 @@
 import { readFile, writeFile } from "node:fs/promises";
 
 const tag = process.env.RELEASE_TAG || process.env.GITHUB_REF_NAME || "";
-const version = tag.replace(/^v/, "");
+const shortVersion = tag.replace(/^v/, "");
+const version = /^\d+\.\d+$/.test(shortVersion) ? `${shortVersion}.0` : shortVersion;
 
 if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
-  throw new Error(`Release tag must contain a semantic version, received: ${tag || "(empty)"}`);
+  throw new Error(
+    `Release tag must be vMAJOR.MINOR or semantic version, received: ${tag || "(empty)"}`,
+  );
 }
 
 const updateJson = async (path, update) => {
@@ -28,4 +31,4 @@ await updateJson("src-tauri/tauri.conf.json", (tauriConfig) => {
   tauriConfig.version = version;
 });
 
-console.log(`Using release version ${version}`);
+console.log(`Using release tag ${tag} as semantic version ${version}`);

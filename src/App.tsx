@@ -117,7 +117,7 @@ function App() {
   const llamaUpdate = useLlamaCppUpdate({
     exePath,
     setExePath,
-    isServerRunning: server.isRunning,
+    isServerRunning: server.isManaged,
     buildCurrentConfig,
     saveAppConfig,
     showToast,
@@ -128,7 +128,7 @@ function App() {
     openWebuiHost,
     openWebuiPort,
     serverSettings,
-    isLlamaRunning: server.isRunning,
+    isLlamaRunning: server.isManaged,
     buildCurrentConfig,
     saveAppConfig,
     showToast,
@@ -193,18 +193,23 @@ function App() {
   const statusTone =
     server.serverStatus === "running"
       ? "running"
-      : server.serverStatus === "error"
+      : server.serverStatus === "error" || server.externalServerEndpoint
         ? "error"
         : server.serverStatus === "starting"
           ? "starting"
           : "";
-  const statusLabel =
-    server.serverStatus === "running"
+  const statusLabel = server.isManaged
+    ? server.serverStatus === "running"
       ? `Running on ${serverSettings.port}`
       : server.serverStatus === "starting"
         ? "Starting..."
-        : server.serverStatus === "error"
-          ? "Connection lost"
+        : "Connection lost"
+    : server.externalServerEndpoint
+      ? "External server detected"
+      : server.serverStatus === "error"
+        ? "Connection lost"
+        : server.serverStatus === "starting"
+          ? "Starting..."
           : "Stopped";
 
   const selectedModelInfo = models.find((m) => m.path === modelPath);
@@ -380,7 +385,7 @@ function App() {
             </div>
 
             <div className="control-section">
-              {!server.isRunning ? (
+              {!server.isManaged ? (
                 <button
                   className="btn btn-success btn-block"
                   onClick={server.handleStart}
@@ -404,7 +409,13 @@ function App() {
                   Stop Server
                 </button>
               )}
-              {server.isRunning && (
+              {server.externalServerEndpoint && !server.isManaged && (
+                <div className="control-info">
+                  <Wifi size={11} />
+                  <span>Another service is responding on this endpoint.</span>
+                </div>
+              )}
+              {server.isManaged && (
                 <div className="control-info">
                   <Wifi size={11} />
                   <span>{server.endpoint}</span>
@@ -452,7 +463,9 @@ function App() {
                 <Server size={16} />
                 <span className="metric-label">Endpoint</span>
                 <strong className="metric-endpoint">
-                  {server.isRunning ? server.endpoint : "Not running"}
+                  {server.isManaged
+                    ? server.endpoint
+                    : server.externalServerEndpoint || "Not running"}
                 </strong>
               </div>
               <div
@@ -469,7 +482,7 @@ function App() {
             <ServerSettingsPanel
               settings={serverSettings}
               serverStatus={server.serverStatus}
-              isRunning={server.isRunning}
+              isRunning={server.isManaged}
               modelPath={modelPath}
               selectedModelFilename={
                 selectedModelInfo?.filename ||

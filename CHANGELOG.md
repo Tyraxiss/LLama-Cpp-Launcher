@@ -4,6 +4,16 @@ All notable changes to LLama C++ Launcher are documented here.
 
 ## [Unreleased]
 
+## [1.1] - 2026-09-24
+
+### Fixed
+
+- Stop Open WebUI only when a listener belongs to its configured virtual environment.
+- Make Hugging Face cancellation interrupt pending network reads.
+- Restore the previous llama.cpp install if an update fails partway through.
+- Distinguish launcher-managed llama-server processes from external listeners.
+- Update the documented application version.
+
 ## [1.0.10] - 2026-09-22
 
 ### Fixed

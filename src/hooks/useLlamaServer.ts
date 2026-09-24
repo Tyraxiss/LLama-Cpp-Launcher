@@ -27,6 +27,8 @@ export function useLlamaServer({
   showToast,
 }: UseLlamaServerOptions) {
   const [isRunning, setIsRunning] = useState(false);
+  const [isManaged, setIsManaged] = useState(false);
+  const [externalServerEndpoint, setExternalServerEndpoint] = useState<string | null>(null);
   const [serverStatus, setServerStatus] = useState<ProcessStatus>("stopped");
   const [serverLog, setServerLog] = useState<string[]>([]);
   const [logExpanded, setLogExpanded] = useState(false);
@@ -55,6 +57,7 @@ export function useLlamaServer({
   useEffect(() => {
     const unlisten = listen<string>("server-exited", (event) => {
       setIsRunning(false);
+      setIsManaged(false);
       startupDeadline.current = null;
       setServerLog((prev) => appendBoundedLog(prev, `Process exited: ${event.payload}`));
       if (stoppingServer.current) {
@@ -85,13 +88,31 @@ export function useLlamaServer({
       }
 
       try {
+        const managedEndpoint = await invoke<[string, number] | null>(
+          "get_managed_server_endpoint",
+        );
+        const managed = Boolean(
+          managedEndpoint && managedEndpoint[0] === host && managedEndpoint[1] === port,
+        );
+        if (!cancelled) {
+          setIsManaged(managed);
+          setIsRunning(managed);
+        }
         const status = await invoke("check_server_health", { host, port });
         if (!cancelled && (status === "healthy" || status === "running")) {
-          setIsRunning(true);
-          setServerStatus("running");
+          if (managed) {
+            setIsRunning(true);
+            setServerStatus("running");
+            setExternalServerEndpoint(null);
+          } else {
+            setExternalServerEndpoint(`http://${host}:${port}`);
+          }
+        } else if (!cancelled && managed) {
+          setIsRunning(false);
+          setServerStatus("error");
         }
       } catch {
-        // Server not reachable
+        // Server not reachable or process state unavailable
       }
     };
 
@@ -100,7 +121,44 @@ export function useLlamaServer({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [serverSettings.host, serverSettings.port]);
+
+  useEffect(() => {
+    if (isManaged || serverStatus === "starting") {
+      return;
+    }
+
+    let cancelled = false;
+    const detectExternalServer = async () => {
+      try {
+        const { host, port } = serverSettingsRef.current;
+        const status = await invoke("check_server_health", { host, port });
+        const managedEndpoint = await invoke<[string, number] | null>(
+          "get_managed_server_endpoint",
+        );
+        const managed = Boolean(
+          managedEndpoint && managedEndpoint[0] === host && managedEndpoint[1] === port,
+        );
+        if (!cancelled) setIsManaged(managed);
+        if (!cancelled) {
+          setExternalServerEndpoint(
+            !managed && (status === "healthy" || status === "running")
+              ? `http://${host}:${port}`
+              : null,
+          );
+        }
+      } catch {
+        if (!cancelled) setExternalServerEndpoint(null);
+      }
+    };
+
+    void detectExternalServer();
+    const interval = setInterval(detectExternalServer, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [isManaged, serverStatus, serverSettings.host, serverSettings.port]);
 
   useEffect(() => {
     if (logExpanded && logEndRef.current) {
@@ -167,6 +225,7 @@ export function useLlamaServer({
       return;
     }
 
+    setExternalServerEndpoint(null);
     setServerStatus("starting");
     stoppingServer.current = false;
     setServerLog([]);
@@ -198,12 +257,15 @@ export function useLlamaServer({
         },
       });
       setIsRunning(true);
+      setIsManaged(true);
+      setExternalServerEndpoint(null);
       startupDeadline.current = Date.now() + 15000;
       setServerStatus("starting");
       showToast(result as string, "success");
     } catch (error) {
       setServerStatus("error");
       setIsRunning(false);
+      setIsManaged(false);
       startupDeadline.current = null;
       showToast(String(error), "error");
     }
@@ -223,6 +285,8 @@ export function useLlamaServer({
       const result = await invoke("stop_llama_server");
       showToast(result as string, "success");
       setIsRunning(false);
+      setIsManaged(false);
+      setExternalServerEndpoint(null);
       setServerStatus("stopped");
       startupDeadline.current = null;
     } catch (error) {
@@ -237,14 +301,14 @@ export function useLlamaServer({
   }, []);
 
   const copyEndpoint = useCallback(async () => {
-    if (!isRunning) return;
+    if (!isManaged) return;
     try {
       await navigator.clipboard.writeText(`http://${serverSettings.host}:${serverSettings.port}`);
       showToast("Endpoint copied", "success");
     } catch {
       showToast("Failed to copy endpoint", "error");
     }
-  }, [isRunning, serverSettings.host, serverSettings.port, showToast]);
+  }, [isManaged, serverSettings.host, serverSettings.port, showToast]);
 
   const endpoint = `http://${serverSettings.host}:${serverSettings.port}`;
   const openAiEndpoint = `${endpoint}/v1`;
@@ -257,10 +321,14 @@ export function useLlamaServer({
     }
   }, [openAiEndpoint, showToast]);
 
-  const canStart = Boolean(exePath && modelPath && serverStatus !== "starting");
+  const canStart = Boolean(
+    exePath && modelPath && serverStatus !== "starting" && !externalServerEndpoint && !isManaged,
+  );
 
   return {
     isRunning,
+    isManaged,
+    externalServerEndpoint,
     serverStatus,
     serverLog,
     logExpanded,

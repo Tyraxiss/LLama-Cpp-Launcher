@@ -2,9 +2,9 @@
 
 A Windows-focused desktop app for running local [llama.cpp](https://github.com/ggerganov/llama.cpp) models, downloading GGUF files from Hugging Face, and optionally using [Open WebUI](https://github.com/open-webui/open-webui) as the chat front end.
 
-Built with **Tauri 2**, **React**, and **Rust**. Current version: **1.0.9**.
+Built with **Tauri 2**, **React**, and **Rust**. Current version: **v1.1**.
 
-## What's new in 1.0.9
+## What's new in v1.1
 
 ### Added
 
@@ -119,9 +119,11 @@ CI on `main` runs TypeScript, ESLint, Prettier, `cargo fmt`, `cargo clippy`, Rus
 
 Prebuilt Windows installers are published on [GitHub Releases](https://github.com/Tyraxiss/LLama-Cpp-Launcher/releases) when a version tag is pushed:
 
+Release tags use the short `vMAJOR.MINOR` format (for example `v1.1`, then `v1.2`). The build maps `v1.1` to semantic app version `1.1.0`.
+
 ```powershell
-git tag v1.0.9
-git push origin v1.0.9
+git tag v1.1
+git push origin v1.1
 ```
 
 The release workflow builds the NSIS `.exe` installer and attaches it to the GitHub Release. See [CHANGELOG.md](CHANGELOG.md) for version history.

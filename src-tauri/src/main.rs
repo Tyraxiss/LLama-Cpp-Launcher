@@ -26,7 +26,10 @@ fn main() {
             app.manage(AppState {
                 child_process: std::sync::Mutex::new(None),
                 server_pid: std::sync::Mutex::new(None),
+                managed_server_endpoint: std::sync::Mutex::new(None),
                 open_webui_process: std::sync::Mutex::new(None),
+                open_webui_venv_path: std::sync::Mutex::new(config.open_webui_venv_path.clone()),
+                open_webui_process_venv_path: std::sync::Mutex::new(None),
                 open_webui_updating: std::sync::Mutex::new(false),
                 llama_cpp_updating: std::sync::Mutex::new(false),
                 hf_download_cancel: std::sync::Mutex::new(None),
@@ -50,6 +53,7 @@ fn main() {
             hf::cancel_hf_download,
             server::start_llama_server,
             server::stop_llama_server,
+            server::get_managed_server_endpoint,
             server::get_server_log,
             server::clear_server_log,
             open_webui::get_open_webui_version,

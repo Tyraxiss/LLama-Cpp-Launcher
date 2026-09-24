@@ -175,7 +175,10 @@ pub fn save_config(
 ) -> Result<(), String> {
     save_config_to_disk(&app, &config)?;
     if let Ok(mut stored) = state.config.lock() {
-        *stored = config;
+        *stored = config.clone();
+    }
+    if let Ok(mut venv_path) = state.open_webui_venv_path.lock() {
+        *venv_path = config.open_webui_venv_path;
     }
     Ok(())
 }

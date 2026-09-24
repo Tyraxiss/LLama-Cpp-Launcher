@@ -119,6 +119,14 @@ pub async fn start_llama_server(
         .spawn()
         .map_err(|e| format!("Failed to launch server: {}", e))?;
 
+    let pid = child.pid();
+    set_server_pid(&state.server_pid, Some(pid));
+    *state
+        .managed_server_endpoint
+        .lock()
+        .map_err(|e| e.to_string())? = Some((config.host.clone(), config.port));
+    *lock = Some(child);
+
     let app_clone = app_handle.clone();
     tauri::async_runtime::spawn(async move {
         use tauri_plugin_shell::process::CommandEvent;
@@ -149,6 +157,9 @@ pub async fn start_llama_server(
                         let _ = child_lock.take();
                     }
                     set_server_pid(&state.server_pid, None);
+                    if let Ok(mut endpoint) = state.managed_server_endpoint.lock() {
+                        *endpoint = None;
+                    }
                 }
                 let _ = app_clone.emit("server-exited", format!("{:?}", payload));
                 break;
@@ -156,9 +167,6 @@ pub async fn start_llama_server(
         }
     });
 
-    let pid = child.pid();
-    set_server_pid(&state.server_pid, Some(pid));
-    *lock = Some(child);
     Ok(format!("Server started on {}:{}", config.host, config.port))
 }
 
@@ -170,10 +178,24 @@ pub fn stop_llama_server(state: State<'_, AppState>) -> Result<String, String> {
             .kill()
             .map_err(|e| format!("Failed to kill process: {}", e))?;
         set_server_pid(&state.server_pid, None);
+        if let Ok(mut endpoint) = state.managed_server_endpoint.lock() {
+            *endpoint = None;
+        }
         Ok("Server stopped".into())
     } else {
         Err("No server running".into())
     }
+}
+
+#[tauri::command]
+pub fn get_managed_server_endpoint(
+    state: State<'_, AppState>,
+) -> Result<Option<(String, u16)>, String> {
+    let endpoint = state
+        .managed_server_endpoint
+        .lock()
+        .map_err(|e| e.to_string())?;
+    Ok(endpoint.clone())
 }
 
 #[tauri::command]

@@ -2,10 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, OnceLock,
-};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use tauri::{Emitter, State};
 
@@ -174,7 +171,7 @@ fn shared_hf_client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
         reqwest::Client::builder()
-            .user_agent("LLama C++ Launcher/1.0.9")
+            .user_agent("LLama C++ Launcher/1.1.0")
             .pool_max_idle_per_host(4)
             .tcp_keepalive(Duration::from_secs(60))
             .build()
@@ -453,18 +450,21 @@ pub async fn download_hf_model(
     let part_path = target_dir.join(format!("{}.part", filename));
     let existing_meta = read_partial_metadata(&part_path);
 
-    let cancel_flag = Arc::new(AtomicBool::new(false));
+    let (cancel_sender, mut cancel_receiver) = tokio::sync::watch::channel(false);
     {
         let mut lock = state.hf_download_cancel.lock().map_err(|e| e.to_string())?;
         if lock.is_some() {
             return Err("A Hugging Face download is already running.".into());
         }
-        *lock = Some(cancel_flag.clone());
+        *lock = Some(cancel_sender);
     }
 
     let result: Result<String, String> = async {
         // Pin to the repo's current commit so resumes cannot continue onto a moved `main`.
-        let repo_info = fetch_hf_repo_info(&repo, config.token.as_deref()).await?;
+        let repo_info = tokio::select! {
+            result = fetch_hf_repo_info(&repo, config.token.as_deref()) => result?,
+            _ = cancel_receiver.changed() => return Err("Download cancelled".into()),
+        };
         let revision = repo_info.sha.clone();
         let resume_from = prepare_partial_download(&part_path, &repo, &config.file_path, &revision);
 
@@ -517,10 +517,11 @@ pub async fn download_hf_model(
             request = request.header(reqwest::header::RANGE, format!("bytes={}-", resume_from));
         }
 
-        let response = request
-            .send()
-            .await
-            .map_err(|e| format!("Failed to start download: {}", e))?;
+        let response = tokio::select! {
+            response = request.send() => response
+                .map_err(|e| format!("Failed to start download: {}", e))?,
+            _ = cancel_receiver.changed() => return Err("Download cancelled".into()),
+        };
 
         if response.status() == reqwest::StatusCode::UNAUTHORIZED
             || response.status() == reqwest::StatusCode::FORBIDDEN
@@ -591,33 +592,21 @@ pub async fn download_hf_model(
             true,
         );
 
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|e| format!("Failed while downloading: {}", e))?
-        {
-            if cancel_flag.load(Ordering::Relaxed) {
-                file.flush()
-                    .map_err(|e| format!("Failed to flush partial download: {}", e))?;
-                drop(file);
-                write_partial_metadata(&part_path, &metadata)?;
-                emit_download_progress(
-                    &app_handle,
-                    HfDownloadProgress {
-                        repo: repo.clone(),
-                        filename: filename.clone(),
-                        target_path: target_string.clone(),
-                        downloaded_bytes,
-                        total_bytes,
-                        status: HfDownloadStatus::Cancelled,
-                        error: None,
-                    },
-                    &mut last_emit,
-                    &mut last_emitted_bytes,
-                    true,
-                );
-                return Err("Download cancelled".into());
-            }
+        loop {
+            let next_chunk = tokio::select! {
+                chunk = response.chunk() => chunk
+                    .map_err(|e| format!("Failed while downloading: {}", e))?,
+                _ = cancel_receiver.changed() => {
+                    file.flush()
+                        .map_err(|e| format!("Failed to flush partial download: {}", e))?;
+                    drop(file);
+                    write_partial_metadata(&part_path, &metadata)?;
+                    return Err("Download cancelled".into());
+                }
+            };
+            let Some(chunk) = next_chunk else {
+                break;
+            };
 
             file.write_all(&chunk)
                 .map_err(|e| format!("Failed to write download: {}", e))?;
@@ -670,20 +659,23 @@ pub async fn download_hf_model(
     if let Err(ref error) = result {
         let downloaded_bytes = part_file_size(&part_path);
         let total_bytes = read_partial_metadata(&part_path).and_then(|meta| meta.total_bytes);
-        if error != "Download cancelled" {
-            let _ = app_handle.emit(
-                "hf-download-progress",
-                HfDownloadProgress {
-                    repo,
-                    filename,
-                    target_path: target_path.to_string_lossy().to_string(),
-                    downloaded_bytes,
-                    total_bytes,
-                    status: HfDownloadStatus::Error,
-                    error: Some(error.clone()),
+        let cancelled = error == "Download cancelled";
+        let _ = app_handle.emit(
+            "hf-download-progress",
+            HfDownloadProgress {
+                repo,
+                filename,
+                target_path: target_path.to_string_lossy().to_string(),
+                downloaded_bytes,
+                total_bytes,
+                status: if cancelled {
+                    HfDownloadStatus::Cancelled
+                } else {
+                    HfDownloadStatus::Error
                 },
-            );
-        }
+                error: if cancelled { None } else { Some(error.clone()) },
+            },
+        );
     }
 
     result
@@ -692,8 +684,8 @@ pub async fn download_hf_model(
 #[tauri::command]
 pub fn cancel_hf_download(state: State<'_, AppState>) -> Result<String, String> {
     let lock = state.hf_download_cancel.lock().map_err(|e| e.to_string())?;
-    if let Some(flag) = lock.as_ref() {
-        flag.store(true, Ordering::Relaxed);
+    if let Some(sender) = lock.as_ref() {
+        let _ = sender.send(true);
         Ok("Download cancellation requested".into())
     } else {
         Err("No Hugging Face download is running".into())

@@ -1,8 +1,6 @@
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
-};
+use std::sync::Mutex;
 use tauri_plugin_shell::process::CommandChild;
+use tokio::sync::watch;
 
 use crate::config::AppConfig;
 
@@ -11,10 +9,13 @@ pub const MAX_LOG_LINES: usize = 200;
 pub struct AppState {
     pub child_process: Mutex<Option<CommandChild>>,
     pub server_pid: Mutex<Option<u32>>,
+    pub managed_server_endpoint: Mutex<Option<(String, u16)>>,
     pub open_webui_process: Mutex<Option<CommandChild>>,
+    pub open_webui_venv_path: Mutex<Option<String>>,
+    pub open_webui_process_venv_path: Mutex<Option<String>>,
     pub open_webui_updating: Mutex<bool>,
     pub llama_cpp_updating: Mutex<bool>,
-    pub hf_download_cancel: Mutex<Option<Arc<AtomicBool>>>,
+    pub hf_download_cancel: Mutex<Option<watch::Sender<bool>>>,
     pub config: Mutex<AppConfig>,
     pub stderr_log: Mutex<Vec<String>>,
     pub open_webui_log: Mutex<Vec<String>>,
@@ -33,8 +34,8 @@ impl Drop for AppState {
             }
         }
         if let Ok(mut cancel) = self.hf_download_cancel.lock() {
-            if let Some(flag) = cancel.take() {
-                flag.store(true, Ordering::Relaxed);
+            if let Some(sender) = cancel.take() {
+                let _ = sender.send(true);
             }
         }
     }

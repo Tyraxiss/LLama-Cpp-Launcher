@@ -291,7 +291,7 @@ pub async fn start_open_webui(
         .env("OPENAI_API_KEYS", "sk-local")
         .env("ENABLE_OLLAMA_API", "False")
         .env("CORS_ALLOW_ORIGIN", "*")
-        .env("USER_AGENT", "LLama C++ Launcher/1.0.9")
+        .env("USER_AGENT", "LLama C++ Launcher/1.1.0")
         .env("PYTHONUTF8", "1")
         .env("PYTHONIOENCODING", "utf-8")
         .spawn()
@@ -334,6 +334,10 @@ pub async fn start_open_webui(
         }
     });
 
+    *state
+        .open_webui_process_venv_path
+        .lock()
+        .map_err(|e| e.to_string())? = Some(config.venv_path.clone());
     *lock = Some(child);
     Ok(format!(
         "Open WebUI started on {} and connected to {}",
@@ -342,32 +346,55 @@ pub async fn start_open_webui(
 }
 
 #[tauri::command]
-pub fn stop_open_webui(state: State<'_, AppState>, port: Option<u16>) -> Result<String, String> {
+pub fn stop_open_webui(
+    state: State<'_, AppState>,
+    port: Option<u16>,
+    venv_path: Option<String>,
+) -> Result<String, String> {
     let mut lock = state.open_webui_process.lock().map_err(|e| e.to_string())?;
-    if let Some(child) = lock.take() {
-        child
-            .kill()
-            .map_err(|e| format!("Failed to kill Open WebUI process: {}", e))?;
-        // Also clear any leftover listeners (open-webui can respawn workers).
-        if let Some(port) = port {
-            let _ = crate::process_util::kill_listeners_on_port(port);
+    let had_child = lock.is_some();
+    let process_venv = state
+        .open_webui_process_venv_path
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+    let venv_path = process_venv.or(venv_path);
+    let child = lock.take();
+    let child_error = child.and_then(|child| match child.kill() {
+        Ok(()) => None,
+        Err(error) => Some(error.to_string()),
+    });
+    let killed = match (port, venv_path.as_deref()) {
+        (Some(port), Some(venv_path)) => {
+            crate::process_util::kill_venv_listeners_on_port(port, Path::new(venv_path))?
         }
-        return Ok("Open WebUI stopped".into());
-    }
-
-    let Some(port) = port else {
-        return Err("Open WebUI is not managed by the launcher".into());
+        _ => 0,
     };
 
-    let killed = crate::process_util::kill_listeners_on_port(port)?;
-    if killed == 0 {
-        return Err(format!(
-            "No Open WebUI process handle, and nothing is listening on port {port}."
+    if let Some(error) = child_error.as_ref() {
+        if killed == 0 {
+            if let Ok(mut stored_venv) = state.open_webui_process_venv_path.lock() {
+                *stored_venv = venv_path.clone();
+            }
+            return Err(format!("Failed to kill Open WebUI process: {error}"));
+        }
+    }
+    if let Ok(mut stored_venv) = state.open_webui_process_venv_path.lock() {
+        *stored_venv = if killed == 0 && !had_child {
+            venv_path.clone()
+        } else {
+            None
+        };
+    }
+    if killed > 0 {
+        return Ok(format!(
+            "Open WebUI stopped; terminated {killed} process(es) from its venv."
         ));
     }
-    Ok(format!(
-        "Open WebUI was no longer tracked, but stopped {killed} process(es) on port {port}."
-    ))
+    if had_child && child_error.is_none() {
+        return Ok("Open WebUI process stopped; no matching listener remained.".into());
+    }
+    Err("No managed Open WebUI process or matching venv listener was found.".into())
 }
 
 #[tauri::command]

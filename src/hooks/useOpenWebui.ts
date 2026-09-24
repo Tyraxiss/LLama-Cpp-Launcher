@@ -321,17 +321,21 @@ export function useOpenWebui({
     try {
       userStoppedRef.current = true;
       stoppingOpenWebui.current = true;
-      const result = await invoke("stop_open_webui", { port: openWebuiPort });
+      const result = await invoke("stop_open_webui", {
+        port: openWebuiPort,
+        venvPath: openWebuiVenvPath || null,
+      });
       showToast(result as string, "success");
       setOpenWebuiRunning(false);
       setOpenWebuiStatus("stopped");
       openWebuiStartupDeadline.current = null;
       stoppingOpenWebui.current = false;
     } catch (error) {
+      userStoppedRef.current = false;
       stoppingOpenWebui.current = false;
       showToast(String(error), "error");
     }
-  }, [openWebuiPort, showToast]);
+  }, [openWebuiPort, openWebuiVenvPath, showToast]);
 
   const handleUpdate = useCallback(async () => {
     if (!openWebuiVenvPath) {

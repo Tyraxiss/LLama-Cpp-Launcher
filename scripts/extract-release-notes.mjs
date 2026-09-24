@@ -7,7 +7,8 @@ if (!tag) {
   process.exit(1);
 }
 
-const version = tag.replace(/^v/, "");
+const shortVersion = tag.replace(/^v/, "");
+const version = /^\d+\.\d+$/.test(shortVersion) ? `${shortVersion}.0` : shortVersion;
 const repo = process.env.GITHUB_REPOSITORY;
 if (!repo) {
   console.error("GITHUB_REPOSITORY is required");
@@ -16,7 +17,7 @@ if (!repo) {
 
 const changelog = readFileSync("CHANGELOG.md", "utf8");
 const sectionPattern = new RegExp(
-  `## \\[${version.replaceAll(".", "\\.")}\\][^\\n]*\\n([\\s\\S]*?)(?=\\n## \\[|$)`,
+  `## \\[${shortVersion.replaceAll(".", "\\.")}\\](?:[^\\n]*)\\n([\\s\\S]*?)(?=\\n## \\[|$)`,
 );
 const match = changelog.match(sectionPattern);
 if (!match) {
@@ -35,7 +36,7 @@ const compareLine = previousTag
   : "";
 
 const body = [
-  `## What's new in ${version}`,
+  `## What's new in ${tag}`,
   "",
   notes,
   "",

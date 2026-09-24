@@ -18,7 +18,7 @@ use crate::state::AppState;
 
 const LLAMA_REPO: &str = "ggml-org/llama.cpp";
 const BUILD_MARKER: &str = ".llama-launcher-build.json";
-const USER_AGENT: &str = "LLama C++ Launcher/1.0.9";
+const USER_AGENT: &str = "LLama C++ Launcher/1.1.0";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct BuildMarker {
@@ -436,11 +436,42 @@ fn is_backend_runtime_filename(name: &str) -> bool {
         || lower == "vulkan-1.dll"
 }
 
-fn remove_stale_backend_runtime(install_dir: &Path, keep: &HashSet<String>) -> Result<(), String> {
-    let Ok(entries) = fs::read_dir(install_dir) else {
-        return Ok(());
-    };
-    for entry in entries.flatten() {
+fn collect_relative_files(root: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut files = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in
+            fs::read_dir(&dir).map_err(|e| format!("Failed to scan {}: {e}", dir.display()))?
+        {
+            let entry = entry.map_err(|e| format!("Failed to read {}: {e}", dir.display()))?;
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                files.push(
+                    path.strip_prefix(root)
+                        .map_err(|e| format!("Failed to relativize path: {e}"))?
+                        .to_path_buf(),
+                );
+            }
+        }
+    }
+    Ok(files)
+}
+
+fn stale_backend_runtime_files(
+    install_dir: &Path,
+    keep: &HashSet<String>,
+) -> Result<Vec<PathBuf>, String> {
+    let mut stale = Vec::new();
+    let entries = fs::read_dir(install_dir).map_err(|e| {
+        format!(
+            "Failed to read install directory {}: {e}",
+            install_dir.display()
+        )
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Failed to read install entry: {e}"))?;
         let path = entry.path();
         if !path.is_file() {
             continue;
@@ -448,18 +479,95 @@ fn remove_stale_backend_runtime(install_dir: &Path, keep: &HashSet<String>) -> R
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        let key = name.to_ascii_lowercase();
-        if is_backend_runtime_filename(name) && !keep.contains(&key) {
-            let _ = fs::remove_file(&path);
+        if is_backend_runtime_filename(name) && !keep.contains(&name.to_ascii_lowercase()) {
+            stale.push(PathBuf::from(name));
         }
     }
-    Ok(())
+    Ok(stale)
 }
 
-fn install_from_staging(staging_root: &Path, install_dir: &Path) -> Result<(), String> {
+fn rollback_install(install_dir: &Path, backup_dir: &Path, touched: &[PathBuf]) -> Vec<String> {
+    let mut failures = Vec::new();
+    for relative in touched {
+        let installed = install_dir.join(relative);
+        let backup = backup_dir.join(relative);
+        if backup.is_file() {
+            if let Some(parent) = installed.parent() {
+                if let Err(error) = fs::create_dir_all(parent) {
+                    failures.push(format!("{}: {error}", installed.display()));
+                    continue;
+                }
+            }
+            if let Err(error) = fs::copy(&backup, &installed) {
+                failures.push(format!("{}: {error}", installed.display()));
+            }
+        } else if installed.exists() {
+            if let Err(error) = fs::remove_file(&installed) {
+                failures.push(format!("{}: {error}", installed.display()));
+            }
+        }
+    }
+    failures
+}
+
+fn install_from_staging(
+    staging_root: &Path,
+    install_dir: &Path,
+    backup_dir: &Path,
+) -> Result<Vec<PathBuf>, String> {
     let keep = collect_filenames(staging_root)?;
-    remove_stale_backend_runtime(install_dir, &keep)?;
-    copy_dir_contents(staging_root, install_dir)
+    let staged_files = collect_relative_files(staging_root)?;
+    let stale_files = stale_backend_runtime_files(install_dir, &keep)?;
+    let mut touched_set = HashSet::new();
+    touched_set.extend(staged_files);
+    touched_set.extend(stale_files);
+    let touched: Vec<PathBuf> = touched_set.into_iter().collect();
+
+    // Save every file that may be replaced or removed before mutating the live install.
+    for relative in &touched {
+        let current = install_dir.join(relative);
+        if current.is_dir() {
+            return Err(format!(
+                "Cannot safely replace directory {} with an update file.",
+                current.display()
+            ));
+        }
+        if current.is_file() {
+            let backup = backup_dir.join(relative);
+            if let Some(parent) = backup.parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|e| format!("Failed to prepare update rollback: {e}"))?;
+            }
+            fs::copy(&current, &backup)
+                .map_err(|e| format!("Failed to back up {}: {e}", current.display()))?;
+        }
+    }
+
+    let install_result = (|| {
+        for relative in &touched {
+            let current = install_dir.join(relative);
+            if current.is_file() && !staging_root.join(relative).is_file() {
+                fs::remove_file(&current).map_err(|e| {
+                    format!("Failed to remove stale runtime {}: {e}", current.display())
+                })?;
+            }
+        }
+        copy_dir_contents(staging_root, install_dir)
+    })();
+
+    if let Err(error) = install_result {
+        let rollback_failures = rollback_install(install_dir, backup_dir, &touched);
+        if rollback_failures.is_empty() {
+            return Err(format!(
+                "{error} The previous llama.cpp install was restored."
+            ));
+        }
+        return Err(format!(
+            "{error} Rollback was incomplete for: {}",
+            rollback_failures.join(", ")
+        ));
+    }
+    Ok(touched)
 }
 
 fn ensure_server_stopped(state: &State<'_, AppState>) -> Result<(), String> {
@@ -714,6 +822,10 @@ async fn update_llama_cpp_inner(
         let _ = fs::remove_dir_all(&temp_root);
         return Err(error);
     }
+    if let Err(error) = write_build_marker(&staging_root, &release.tag_name, backend) {
+        let _ = fs::remove_dir_all(&temp_root);
+        return Err(error);
+    }
 
     emit_progress(
         app_handle,
@@ -726,25 +838,29 @@ async fn update_llama_cpp_inner(
         },
     );
 
-    ensure_server_stopped(state)?;
-
-    if let Err(error) = install_from_staging(&staging_root, &install_dir) {
+    if let Err(error) = ensure_server_stopped(state) {
         let _ = fs::remove_dir_all(&temp_root);
-        emit_progress(
-            app_handle,
-            LlamaCppUpdateProgress {
-                stage: LlamaCppUpdateStage::Error,
-                filename: None,
-                downloaded_bytes: 0,
-                total_bytes: None,
-                message: error.clone(),
-            },
-        );
         return Err(error);
     }
 
-    write_build_marker(&install_dir, &release.tag_name, backend)?;
-    let _ = fs::remove_dir_all(&temp_root);
+    let backup_dir = temp_root.join("backup");
+    let touched = match install_from_staging(&staging_root, &install_dir, &backup_dir) {
+        Ok(touched) => touched,
+        Err(error) => {
+            let _ = fs::remove_dir_all(&temp_root);
+            emit_progress(
+                app_handle,
+                LlamaCppUpdateProgress {
+                    stage: LlamaCppUpdateStage::Error,
+                    filename: None,
+                    downloaded_bytes: 0,
+                    total_bytes: None,
+                    message: error.clone(),
+                },
+            );
+            return Err(error);
+        }
+    };
 
     let exe_name = if cfg!(windows) {
         "llama-server.exe"
@@ -753,16 +869,44 @@ async fn update_llama_cpp_inner(
     };
     let next_exe = install_dir.join(exe_name);
     if !next_exe.is_file() {
-        return Err("Update finished but llama-server was not found in the install folder.".into());
+        let failures = rollback_install(&install_dir, &backup_dir, &touched);
+        let _ = fs::remove_dir_all(&temp_root);
+        return Err(if failures.is_empty() {
+            "Update did not contain llama-server; previous install was restored.".into()
+        } else {
+            format!(
+                "Update did not contain llama-server; rollback failed: {}",
+                failures.join(", ")
+            )
+        });
     }
 
-    {
+    let config_save_result = (|| {
         let mut config = state.config.lock().map_err(|e| e.to_string())?;
+        let previous = config.clone();
         config.exe_path = Some(next_exe.to_string_lossy().to_string());
         config.llama_cpp_backend = Some(backend.to_string());
         config.llama_cpp_tag = Some(release.tag_name.clone());
-        save_config_to_disk(app_handle, &config)?;
+        if let Err(error) = save_config_to_disk(app_handle, &config) {
+            *config = previous;
+            return Err(error);
+        }
+        Ok(())
+    })();
+    if let Err(error) = config_save_result {
+        let _ = fs::remove_file(install_dir.join(BUILD_MARKER));
+        let failures = rollback_install(&install_dir, &backup_dir, &touched);
+        let _ = fs::remove_dir_all(&temp_root);
+        return Err(if failures.is_empty() {
+            format!("Failed to save update configuration; previous install was restored: {error}")
+        } else {
+            format!(
+                "{error} Rollback was incomplete for: {}",
+                failures.join(", ")
+            )
+        });
     }
+    let _ = fs::remove_dir_all(&temp_root);
 
     emit_progress(
         app_handle,
@@ -790,6 +934,62 @@ async fn update_llama_cpp_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rollback_restores_replaced_files_and_removes_new_files() {
+        let root = std::env::temp_dir().join(format!(
+            "llama-launcher-rollback-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let staging = root.join("staging");
+        let install = root.join("install");
+        let backup = root.join("backup");
+        fs::create_dir_all(&staging).unwrap();
+        fs::create_dir_all(&install).unwrap();
+        fs::create_dir_all(&backup).unwrap();
+        fs::write(install.join("replaced.dll"), b"old").unwrap();
+        fs::write(backup.join("replaced.dll"), b"old").unwrap();
+        let touched = vec![PathBuf::from("replaced.dll"), PathBuf::from("new.dll")];
+        fs::write(install.join("replaced.dll"), b"partially installed").unwrap();
+        fs::write(install.join("new.dll"), b"partial new file").unwrap();
+
+        let failures = rollback_install(&install, &backup, &touched);
+        assert!(failures.is_empty());
+        assert_eq!(fs::read(install.join("replaced.dll")).unwrap(), b"old");
+        assert!(!install.join("new.dll").exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn install_refuses_to_replace_a_directory_with_a_file() {
+        let root = std::env::temp_dir().join(format!(
+            "llama-launcher-install-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let staging = root.join("staging");
+        let install = root.join("install");
+        let backup = root.join("backup");
+        fs::create_dir_all(&staging).unwrap();
+        fs::create_dir_all(install.join("blocked")).unwrap();
+        fs::write(staging.join("blocked"), b"new file").unwrap();
+        fs::write(install.join("blocked/existing.dll"), b"existing").unwrap();
+
+        let error = install_from_staging(&staging, &install, &backup).unwrap_err();
+        assert!(error.contains("Cannot safely replace directory"));
+        assert_eq!(
+            fs::read(install.join("blocked/existing.dll")).unwrap(),
+            b"existing"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
 
     #[test]
     fn extracts_build_tags() {

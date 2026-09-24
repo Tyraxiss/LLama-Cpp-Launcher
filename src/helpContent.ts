@@ -11,8 +11,8 @@ export interface HelpSection {
 export const HELP_SECTIONS: HelpSection[] = [
   {
     id: "whats-new",
-    title: "What's New (1.0.9)",
-    summary: "Updates, safer downloads, and a lighter startup in this release.",
+    title: "What's New (v1.1)",
+    summary: "Safer process cleanup, downloads, and llama.cpp updates.",
     items: [
       {
         term: "In-app llama.cpp updates",
@@ -37,7 +37,7 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         term: "Open WebUI status tracking",
         detail:
-          "If Open WebUI keeps serving after the process handle is lost, the launcher still shows Running when the port responds. Stop can kill orphan listeners on that port.",
+          "If Open WebUI keeps serving after the process handle is lost, the launcher still shows Running when the port responds. Stop only terminates matching Open WebUI processes from the configured virtual environment.",
       },
       {
         term: "Vision projector matching",
@@ -45,9 +45,9 @@ export const HELP_SECTIONS: HelpSection[] = [
           "Auto-pair only when filenames share meaningful tokens. An intentional None stays None across restarts. Server start also checks embedding-size compatibility before launching.",
       },
       {
-        term: "Lighter startup",
+        term: "Safer updates and downloads",
         detail:
-          "Version and update network checks are deferred; resource polling and download progress updates are less aggressive so the UI stays responsive.",
+          "Hugging Face cancellation interrupts pending network reads, and llama.cpp updates restore the previous installation if copying or configuration persistence fails.",
       },
     ],
   },
