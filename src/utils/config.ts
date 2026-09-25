@@ -8,9 +8,14 @@ import type {
   ServerSettings,
 } from "../types";
 import { DEFAULT_THEME } from "../themes";
+import {
+  normalizeServerSettings,
+  suggestMmprojPath as suggestMmprojPathCore,
+} from "./improvements.mjs";
 
 export const MAX_LOG_LINES = 200;
 export const DOWNLOAD_HISTORY_KEY = "llama-launcher-download-history";
+export const DOWNLOAD_QUEUE_KEY = "llama-launcher-download-queue";
 
 export function appendBoundedLog(lines: string[], line: string): string[] {
   const next = [...lines, line];
@@ -136,24 +141,7 @@ function scoreMmprojForModel(modelPath: string, mmprojFilename: string): number 
 
 /** Pick a vision projector only when names clearly match the selected model. */
 export function suggestMmprojPath(modelPath: string, mmprojs: ModelInfo[]): string | null {
-  if (!modelPath) return null;
-  const modelDir = parentDir(modelPath);
-  const sameDir = mmprojs.filter((mmproj) => samePath(parentDir(mmproj.path), modelDir));
-  if (sameDir.length === 0) return null;
-
-  let best: ModelInfo | null = null;
-  let bestScore = 0;
-  for (const mmproj of sameDir) {
-    const score = scoreMmprojForModel(modelPath, mmproj.filename);
-    if (score > bestScore) {
-      bestScore = score;
-      best = mmproj;
-    }
-  }
-
-  // Require a real name affinity so unrelated mmproj files in the same folder
-  // (or text-only models next to a shared projector) are not auto-selected.
-  return bestScore >= 2 && best ? best.path : null;
+  return suggestMmprojPathCore(modelPath, mmprojs);
 }
 
 /**
@@ -245,25 +233,7 @@ export function saveAutoDownloadMmproj(enabled: boolean): void {
 }
 
 export function serverSettingsFromConfig(cfg: AppConfig): ServerSettings {
-  return {
-    ctxSize: cfg.last_ctx_size ?? 8192,
-    port: cfg.last_port ?? 8080,
-    host: cfg.last_host ?? "127.0.0.1",
-    ngl: cfg.last_ngl ?? 99,
-    temp: cfg.last_temp ?? 0.7,
-    threads: cfg.last_threads ?? 0,
-    batchSize: cfg.last_batch_size ?? 512,
-    topP: cfg.last_top_p ?? 0.9,
-    topK: cfg.last_top_k ?? 40,
-    minP: cfg.last_min_p ?? 0.05,
-    repeatPenalty: cfg.last_repeat_penalty ?? 1.1,
-    presencePenalty: cfg.last_presence_penalty ?? 0.0,
-    flashAttn: cfg.last_flash_attn ?? false,
-    mainGpu: cfg.last_main_gpu ?? null,
-    tensorSplit: cfg.last_tensor_split ?? null,
-    noMmap: cfg.last_no_mmap ?? false,
-    noWebui: cfg.last_no_webui ?? false,
-  };
+  return normalizeServerSettings(cfg);
 }
 
 export function buildConfigSnapshot(
@@ -305,7 +275,8 @@ export function buildConfigSnapshot(
     last_tensor_split: server?.tensorSplit ?? base.last_tensor_split,
     last_no_mmap: server?.noMmap ?? base.last_no_mmap,
     last_no_webui: server?.noWebui ?? base.last_no_webui,
-    open_webui_venv_path: openWebui?.venvPath ?? base.open_webui_venv_path,
+    open_webui_venv_path:
+      openWebui?.venvPath === "" ? null : (openWebui?.venvPath ?? base.open_webui_venv_path),
     last_open_webui_port: openWebui?.port ?? base.last_open_webui_port,
     last_open_webui_host: openWebui?.host ?? base.last_open_webui_host,
     llama_cpp_backend:

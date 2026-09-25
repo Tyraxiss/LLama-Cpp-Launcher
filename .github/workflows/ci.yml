@@ -29,6 +29,9 @@ jobs:
       - name: TypeScript check
         run: node node_modules/typescript/bin/tsc --noEmit
 
+      - name: Frontend behavior tests
+        run: npm run test:unit
+
       - name: ESLint
         run: npm run lint
 

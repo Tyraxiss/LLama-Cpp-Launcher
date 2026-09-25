@@ -344,14 +344,19 @@ export function HfDownloadPanel({
                   </button>
                 )}
                 {(item.status === "error" || item.status === "cancelled") && (
-                  <button
-                    className="btn btn-sm btn-success"
-                    onClick={() => onRetryQueued(item.id)}
-                    title="Resume this download"
-                  >
-                    <RefreshCw size={11} />
-                    Resume
-                  </button>
+                  <>
+                    {item.tokenRequired && (
+                      <span className="text-muted">Enter the HF token above before resuming.</span>
+                    )}
+                    <button
+                      className="btn btn-sm btn-success"
+                      onClick={() => onRetryQueued(item.id)}
+                      title="Resume this download"
+                    >
+                      <RefreshCw size={11} />
+                      Resume
+                    </button>
+                  </>
                 )}
               </div>
             ))}

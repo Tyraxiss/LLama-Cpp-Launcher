@@ -11,9 +11,34 @@ export interface HelpSection {
 export const HELP_SECTIONS: HelpSection[] = [
   {
     id: "whats-new",
-    title: "What's New (v1.1)",
-    summary: "Safer process cleanup, downloads, and llama.cpp updates.",
+    title: "What's New",
+    summary: "Safer server access, resilient downloads, and easier diagnostics.",
     items: [
+      {
+        term: "Network access warning",
+        detail:
+          "The Server tab defaults to Local only (127.0.0.1). Network accessible (0.0.0.0) exposes the unauthenticated API to other devices, shows a warning, and requires confirmation each time you start the server.",
+      },
+      {
+        term: "Memory preflight",
+        detail:
+          "Before launch, the Server tab estimates memory from model file size, context length, GPU layers, and available RAM/VRAM. It is intentionally approximate; if it warns, try a smaller context or fewer GPU layers.",
+      },
+      {
+        term: "Open WebUI setup",
+        detail:
+          "Use Set up / Repair Open WebUI environment on the Server or Settings tab. Setup uses Python 3.12 only and creates a standard .venv folder beside the selected llama-server executable by default. Choose .venv location to select another parent folder; the created environment is still named .venv. Use llama-server folder restores the default. An existing .venv is never overwritten; a valid Python 3.12 venv is reused, while an incompatible one can be removed or you can browse to another existing venv. Delete selected .venv permanently removes the current environment after confirmation, and only accepts a valid Python venv folder. If Python 3.12 is missing on Windows, the launcher can install a separate runtime for your Windows user through the official Python Install Manager; other Python installations are left unchanged. Setup asks permission before making downloads.",
+      },
+      {
+        term: "Persistent download queue",
+        detail:
+          "Queued download metadata is saved locally and restored after restart. Hugging Face tokens are never saved. Re-enter a token in the Downloads tab before resuming a gated or private download.",
+      },
+      {
+        term: "Redacted diagnostics",
+        detail:
+          "Use Settings > Export redacted diagnostics to save recent logs, app and llama.cpp build details, and hardware stats. Secret fields and detected personal paths are redacted before export.",
+      },
       {
         term: "In-app llama.cpp updates",
         detail:
@@ -94,9 +119,9 @@ export const HELP_SECTIONS: HelpSection[] = [
           "All server settings are read-only until you stop llama-server. This prevents changing launch options mid-run.",
       },
       {
-        term: "Host",
+        term: "Network Access",
         detail:
-          "The network interface llama-server binds to. 127.0.0.1 is local-only and safest for normal desktop use.",
+          "Local only binds to 127.0.0.1 and is the recommended default. Network accessible binds to 0.0.0.0; it exposes the unauthenticated API and requires an explicit confirmation before every server start.",
       },
       {
         term: "Port",
@@ -250,7 +275,7 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         term: "HF token",
         detail:
-          "Only needed for private or gated models after you have accepted the model license on Hugging Face.",
+          "Only needed for private or gated models after you have accepted the model license on Hugging Face. Tokens are not saved with the persistent download queue; re-enter one before resuming a protected download after restart.",
       },
     ],
   },
@@ -304,7 +329,7 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         term: "Venv folder",
         detail:
-          "Select the virtual environment that contains open-webui.exe. Your expected folder is C:\\llama.cpp\\.venv.",
+          "Use Set up / Repair Open WebUI environment to create the standard .venv folder beside the selected llama-server executable, or choose another parent folder; the environment itself is always named .venv. You can browse to an existing environment. The app never selects Python 3.11. An existing .venv is never overwritten; a valid Python 3.12 venv is reused, while an incompatible one can be deleted with Delete selected .venv (after confirmation) or left in place while you choose a different parent folder. Deletion is limited to validated Python virtual environment folders. On Windows, setup can install a separate Python 3.12 runtime for your user through the official Python Install Manager without replacing other Python installations.",
       },
       {
         term: "Open WebUI port",
@@ -370,7 +395,7 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         term: "Open WebUI exits immediately",
         detail:
-          "Open the Open WebUI Log. Python venv issues and missing dependencies usually show up there. Also confirm llama-server is running first.",
+          "Open the Open WebUI Log. If Windows reports 'No Python at ...', the selected venv's base Python installation is missing. Restore that Python or create a fresh venv with a Python version supported by Open WebUI, reinstall Open WebUI, and select the new venv. Also confirm llama-server is running first.",
       },
       {
         term: "Open WebUI shows Stopped but the page still works",

@@ -13,6 +13,7 @@ import type {
   ModelScanResult,
 } from "../types";
 import {
+  DOWNLOAD_QUEUE_KEY,
   loadAutoDownloadMmproj,
   loadDownloadHistory,
   isMmprojFilename,
@@ -23,6 +24,12 @@ import {
   suggestMmprojPath,
 } from "../utils/config";
 import type { ToastType } from "./useToast";
+import {
+  cancelQueueItem,
+  deserializeDownloadQueue,
+  retryQueueItem,
+  serializeDownloadQueue,
+} from "../utils/improvements.mjs";
 
 interface UseHfDownloadOptions {
   buildCurrentConfig: (
@@ -79,7 +86,13 @@ export function useHfDownload({
   const [hfDownloading, setHfDownloading] = useState(false);
   const [hfProgress, setHfProgress] = useState<HfDownloadProgress | null>(null);
   const [hfPartialDownload, setHfPartialDownload] = useState<HfPartialDownload | null>(null);
-  const [downloadQueue, setDownloadQueue] = useState<HfDownloadQueueItem[]>([]);
+  const [downloadQueue, setDownloadQueue] = useState<HfDownloadQueueItem[]>(() => {
+    try {
+      return deserializeDownloadQueue(localStorage.getItem(DOWNLOAD_QUEUE_KEY));
+    } catch {
+      return [];
+    }
+  });
   const [downloadHistory, setDownloadHistory] =
     useState<DownloadHistoryItem[]>(loadDownloadHistory);
   const [autoDownloadMmproj, setAutoDownloadMmprojState] = useState(loadAutoDownloadMmproj);
@@ -101,7 +114,7 @@ export function useHfDownload({
   const setModelPathRef = useRef(setModelPath);
   const setMmprojPathRef = useRef(setMmprojPath);
   const showToastRef = useRef(showToast);
-  const downloadQueueRef = useRef<HfDownloadQueueItem[]>([]);
+  const downloadQueueRef = useRef<HfDownloadQueueItem[]>(downloadQueue);
   const queueProcessingRef = useRef(false);
   const hfFormRef = useRef({ repo: "", selectedFile: "", targetDir: "", token: "" });
   const processDownloadQueueRef = useRef<() => Promise<void>>(async () => {});
@@ -138,6 +151,11 @@ export function useHfDownload({
       const next = updater(downloadQueueRef.current);
       downloadQueueRef.current = next;
       setDownloadQueue(next);
+      try {
+        localStorage.setItem(DOWNLOAD_QUEUE_KEY, serializeDownloadQueue(next));
+      } catch {
+        // Queue remains usable for the current session if storage is unavailable.
+      }
       return next;
     },
     [],
@@ -395,11 +413,14 @@ export function useHfDownload({
           }
         } catch (error) {
           const message = String(error);
+          if (/denied access|gated|private|token/i.test(message)) {
+            syncQueue((prev) =>
+              prev.map((item) => (item.id === next.id ? { ...item, tokenRequired: true } : item)),
+            );
+          }
           if (message === "Download cancelled") {
             syncQueue((prev) =>
-              prev.map((item) =>
-                item.id === next.id ? { ...item, status: "cancelled" as const } : item,
-              ),
+              prev.map((item) => (item.id === next.id ? cancelQueueItem(item) : item)),
             );
             if (
               form.repo.trim() === next.repo &&
@@ -485,16 +506,18 @@ export function useHfDownload({
   const retryQueuedDownload = useCallback(
     (id: string) => {
       const item = downloadQueueRef.current.find((entry) => entry.id === id);
-      if (!item || (item.status !== "error" && item.status !== "cancelled")) {
+      if (!item || (item.status !== "error" && item.status !== "cancelled")) return;
+      const resumed = retryQueueItem(item, hfFormRef.current.token);
+      if (!resumed) return;
+      if (resumed.needsToken) {
+        setHfRepo(item.repo);
+        setHfSelectedFile(item.file_path);
+        setHfTargetDir(item.target_dir);
+        showToastRef.current("Enter your Hugging Face token, then click Resume again.", "error");
         return;
       }
-
-      syncQueue((prev) =>
-        prev.map((entry) =>
-          entry.id === id ? { ...entry, status: "pending" as const, error: undefined } : entry,
-        ),
-      );
-      void refreshPartialForItem(item);
+      syncQueue((prev) => prev.map((entry) => (entry.id === id ? resumed : entry)));
+      void refreshPartialForItem({ ...item, token: resumed.token });
       kickDownloadQueue();
     },
     [kickDownloadQueue, refreshPartialForItem, syncQueue],
@@ -531,13 +554,13 @@ export function useHfDownload({
         (item.status === "error" || item.status === "cancelled"),
     );
     if (retriable) {
-      syncQueue((prev) =>
-        prev.map((item) =>
-          item.id === retriable.id
-            ? { ...item, status: "pending" as const, error: undefined }
-            : item,
-        ),
-      );
+      const resumed = retryQueueItem(retriable, hfToken) as HfDownloadQueueItem | null;
+      if (resumed?.needsToken) {
+        showToast("Enter your Hugging Face token before resuming this queued download.", "error");
+        return;
+      }
+      if (!resumed) return;
+      syncQueue((prev) => prev.map((item) => (item.id === retriable.id ? resumed : item)));
       showToast("Resuming download", "success");
       kickDownloadQueue();
       return;
@@ -550,6 +573,7 @@ export function useHfDownload({
 
     const token = hfToken.trim() || null;
     const itemsToAdd = [createQueueItem(hfRepo, hfSelectedFile, filename, hfTargetDir, token)];
+    itemsToAdd[0].tokenRequired = Boolean(token);
 
     if (autoDownloadMmproj && !isMmprojFilename(filename)) {
       const mmproj = suggestMmprojFromHfFiles(hfSelectedFile, hfFiles);
@@ -566,9 +590,15 @@ export function useHfDownload({
           (item) => queueItemKey(item.repo, item.file_path, item.target_dir) === mmprojKey,
         );
         if (!alreadyQueued && !alreadyAdding) {
-          itemsToAdd.push(
-            createQueueItem(hfRepo, mmproj.path, mmproj.filename, hfTargetDir, token),
+          const mmprojItem = createQueueItem(
+            hfRepo,
+            mmproj.path,
+            mmproj.filename,
+            hfTargetDir,
+            token,
           );
+          mmprojItem.tokenRequired = Boolean(token);
+          itemsToAdd.push(mmprojItem);
         }
       }
     }

@@ -1,25 +1,34 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { AppConfig, ServerSettings } from "../types";
+import type { AppConfig, OpenWebuiSettings, ServerSettings } from "../types";
 import { appendBoundedLog } from "../utils/config";
 import { deferAfterStartup, runWhenIdle } from "../utils/startup";
 import type { ToastType } from "./useToast";
 import type { ProcessStatus } from "./useLlamaServer";
 
 interface UseOpenWebuiOptions {
+  exePath: string;
   openWebuiVenvPath: string;
+  setOpenWebuiVenvPath: (path: string) => void;
+  venvParentPath: string;
   openWebuiHost: string;
   openWebuiPort: number;
   serverSettings: ServerSettings;
   isLlamaRunning: boolean;
-  buildCurrentConfig: (base?: AppConfig) => AppConfig;
+  buildCurrentConfig: (
+    base?: AppConfig,
+    overrides?: { openWebui?: Partial<OpenWebuiSettings> },
+  ) => AppConfig;
   saveAppConfig: (cfg: AppConfig) => Promise<void>;
   showToast: (msg: string, type: ToastType) => void;
 }
 
 export function useOpenWebui({
+  exePath,
   openWebuiVenvPath,
+  setOpenWebuiVenvPath,
+  venvParentPath,
   openWebuiHost,
   openWebuiPort,
   serverSettings,
@@ -35,6 +44,7 @@ export function useOpenWebui({
   const [openWebuiVersion, setOpenWebuiVersion] = useState<string | null>(null);
   const [openWebuiLatestVersion, setOpenWebuiLatestVersion] = useState<string | null>(null);
   const [openWebuiUpdating, setOpenWebuiUpdating] = useState(false);
+  const [openWebuiSettingUp, setOpenWebuiSettingUp] = useState(false);
   const openWebuiLogEndRef = useRef<HTMLDivElement>(null);
   const openWebuiHealthInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const openWebuiHealthPollSeq = useRef(0);
@@ -55,6 +65,15 @@ export function useOpenWebui({
 
   useEffect(() => {
     const unlisten = listen<string>("open-webui-log", (event) => {
+      setOpenWebuiLog((prev) => appendBoundedLog(prev, event.payload));
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  useEffect(() => {
+    const unlisten = listen<string>("open-webui-setup-progress", (event) => {
       setOpenWebuiLog((prev) => appendBoundedLog(prev, event.payload));
     });
     return () => {
@@ -125,10 +144,7 @@ export function useOpenWebui({
       try {
         const status = await invoke("check_open_webui_health", { host, port });
         if (seq !== openWebuiHealthPollSeq.current) return;
-        if (userStoppedRef.current) {
-          // User asked to stop — do not auto-revive until they Start again.
-          return;
-        }
+        if (userStoppedRef.current) return;
         if (status === "running") {
           setOpenWebuiRunning(true);
           setOpenWebuiStatus("running");
@@ -208,9 +224,7 @@ export function useOpenWebui({
         setOpenWebuiVersion(null);
       }
 
-      if (!includeLatest) {
-        return;
-      }
+      if (!includeLatest) return;
 
       try {
         const latest = await invoke<string>("get_open_webui_latest_version");
@@ -230,10 +244,8 @@ export function useOpenWebui({
     }
 
     let cancelled = false;
-    // Defer version checks — not needed for first paint.
     const cancelInstalled = deferAfterStartup(() => {
-      if (cancelled) return;
-      void refreshOpenWebuiVersions(false);
+      if (!cancelled) void refreshOpenWebuiVersions(false);
     }, 2500);
     const cancelLatest = runWhenIdle(() => {
       if (cancelled) return;
@@ -245,7 +257,6 @@ export function useOpenWebui({
           if (!cancelled) setOpenWebuiLatestVersion(null);
         });
     });
-
     return () => {
       cancelled = true;
       cancelInstalled();
@@ -253,13 +264,87 @@ export function useOpenWebui({
     };
   }, [openWebuiVenvPath, refreshOpenWebuiVersions]);
 
+  const handleSetup = useCallback(async () => {
+    if (openWebuiRunning || openWebuiSettingUp || openWebuiUpdating) return;
+    if (!exePath) {
+      showToast("Select the llama-server executable before setting up Open WebUI", "error");
+      return;
+    }
+    const approved = window.confirm(
+      `Set up Open WebUI in the standard .venv folder under ${venvParentPath || "the selected llama-server folder"} using Python 3.12? If Python 3.12 is not available, on Windows the launcher can install a separate Python 3.12 runtime for your user through the official Python Install Manager. The launcher will then download and install Open WebUI and its dependencies. Existing Python installations will not be replaced. A compatible existing .venv will be reused; an incompatible one will not be modified.`,
+    );
+    if (!approved) return;
+
+    setOpenWebuiSettingUp(true);
+    setOpenWebuiLog((prev) => appendBoundedLog(prev, "Preparing Open WebUI environment..."));
+    try {
+      const path = await invoke<string>("setup_open_webui", {
+        exePath,
+        venvParentPath: venvParentPath || null,
+      });
+      setOpenWebuiVenvPath(path);
+      await saveAppConfig(buildCurrentConfig(undefined, { openWebui: { venvPath: path } }));
+      showToast("Open WebUI setup completed", "success");
+      setOpenWebuiLog((prev) => appendBoundedLog(prev, `Open WebUI environment ready: ${path}`));
+    } catch (error) {
+      const message = String(error);
+      showToast(message, "error");
+      setOpenWebuiLog((prev) => appendBoundedLog(prev, message));
+    } finally {
+      setOpenWebuiSettingUp(false);
+    }
+  }, [
+    buildCurrentConfig,
+    exePath,
+    openWebuiRunning,
+    openWebuiSettingUp,
+    openWebuiUpdating,
+    saveAppConfig,
+    setOpenWebuiVenvPath,
+    showToast,
+    venvParentPath,
+  ]);
+
+  const handleRemoveEnvironment = useCallback(async () => {
+    if (!openWebuiVenvPath || openWebuiRunning || openWebuiSettingUp || openWebuiUpdating) return;
+    const approved = window.confirm(
+      `Permanently delete the selected Open WebUI virtual environment and everything inside it?\n\n${openWebuiVenvPath}\n\nThis cannot be undone.`,
+    );
+    if (!approved) return;
+
+    setOpenWebuiSettingUp(true);
+    try {
+      const result = await invoke<string>("remove_open_webui_venv", {
+        venvPath: openWebuiVenvPath,
+      });
+      setOpenWebuiVenvPath("");
+      await saveAppConfig(buildCurrentConfig(undefined, { openWebui: { venvPath: "" } }));
+      setOpenWebuiVersion(null);
+      setOpenWebuiLatestVersion(null);
+      showToast(result, "success");
+    } catch (error) {
+      showToast(String(error), "error");
+    } finally {
+      setOpenWebuiSettingUp(false);
+    }
+  }, [
+    buildCurrentConfig,
+    openWebuiRunning,
+    openWebuiSettingUp,
+    openWebuiUpdating,
+    openWebuiVenvPath,
+    saveAppConfig,
+    setOpenWebuiVenvPath,
+    showToast,
+  ]);
+
   const handleStart = useCallback(async () => {
     if (!isLlamaRunning) {
       showToast("Start the llama-server first", "error");
       return;
     }
     if (!openWebuiVenvPath) {
-      showToast("Please select the Open WebUI venv folder", "error");
+      showToast("Set up or select the Open WebUI environment first", "error");
       return;
     }
 
@@ -339,17 +424,13 @@ export function useOpenWebui({
 
   const handleUpdate = useCallback(async () => {
     if (!openWebuiVenvPath) {
-      showToast("Please select the Open WebUI venv folder", "error");
+      showToast("Set up or select the Open WebUI environment first", "error");
       return;
     }
-
     setOpenWebuiUpdating(true);
     setOpenWebuiLog((prev) => appendBoundedLog(prev, "Starting Open WebUI update..."));
-
     try {
-      const result = await invoke<string>("update_open_webui", {
-        venvPath: openWebuiVenvPath,
-      });
+      const result = await invoke<string>("update_open_webui", { venvPath: openWebuiVenvPath });
       showToast(result, "success");
       await refreshOpenWebuiVersions();
     } catch (error) {
@@ -383,7 +464,8 @@ export function useOpenWebui({
     isLlamaRunning &&
     !openWebuiRunning &&
     openWebuiStatus !== "starting" &&
-    !openWebuiUpdating,
+    !openWebuiUpdating &&
+    !openWebuiSettingUp,
   );
 
   return {
@@ -392,6 +474,7 @@ export function useOpenWebui({
     openWebuiVersion,
     openWebuiLatestVersion,
     openWebuiUpdating,
+    openWebuiSettingUp,
     updateAvailable,
     openWebuiLog,
     openWebuiLogExpanded,
@@ -399,6 +482,8 @@ export function useOpenWebui({
     openWebuiLogEndRef,
     openWebuiEndpoint,
     canStart,
+    handleSetup,
+    handleRemoveEnvironment,
     handleStart,
     handleStop,
     handleUpdate,

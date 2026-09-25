@@ -88,7 +88,7 @@ fn scan_dir_recursive(
     }
 }
 
-// Keep scoring logic in sync with suggestMmprojPath in src/utils/config.ts.
+// Keep scoring logic in sync with suggestMmprojPath in src/utils/improvements.mjs.
 fn is_noise_token(token: &str) -> bool {
     matches!(
         token,
@@ -201,6 +201,25 @@ pub async fn scan_models(directories: Vec<String>) -> Result<ModelScanResult, St
     tauri::async_runtime::spawn_blocking(move || scan_models_sync(directories))
         .await
         .map_err(|e| format!("Model scan failed: {}", e))
+}
+
+#[tauri::command]
+pub fn get_model_info(path: String) -> Result<Option<ModelInfo>, String> {
+    let model_path = PathBuf::from(&path);
+    let metadata = match fs::metadata(&model_path) {
+        Ok(metadata) if metadata.is_file() => metadata,
+        Ok(_) => return Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("Failed to inspect model file: {error}")),
+    };
+    Ok(Some(ModelInfo {
+        filename: model_path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default(),
+        path,
+        size_bytes: metadata.len(),
+    }))
 }
 
 #[tauri::command]

@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::path::PathBuf;
 use tauri::{Emitter, Manager, State};
 use tauri_plugin_shell::ShellExt;
@@ -6,12 +7,100 @@ use crate::bindings::ServerStartConfig;
 use crate::resources::set_server_pid;
 use crate::state::{AppState, MAX_LOG_LINES};
 
+fn validate_start_config(config: &ServerStartConfig) -> Result<(), String> {
+    let host = config.host.trim();
+    if host != config.host {
+        return Err("Host must not contain leading or trailing whitespace.".into());
+    }
+    if !host.eq_ignore_ascii_case("localhost") {
+        match host.parse::<IpAddr>() {
+            Ok(IpAddr::V4(_)) => {}
+            Ok(IpAddr::V6(_)) => {
+                return Err("IPv6 bind addresses are not currently supported by this UI.".into())
+            }
+            Err(_) => return Err("Host must be localhost or a valid IPv4 bind address.".into()),
+        }
+    }
+    if !(1024..=65535).contains(&config.port) {
+        return Err("Port must be between 1024 and 65535.".into());
+    }
+    if !(256..=131072).contains(&config.ctx_size) {
+        return Err("Context length must be between 256 and 131072.".into());
+    }
+    if config.ngl > 999 {
+        return Err("GPU layers must be between 0 and 999.".into());
+    }
+    if config.threads > 256 {
+        return Err("CPU threads must be between 0 and 256.".into());
+    }
+    if !(64..=4096).contains(&config.batch_size) {
+        return Err("Batch size must be between 64 and 4096.".into());
+    }
+    if !config.temp.is_finite() || !(0.0..=2.0).contains(&config.temp) {
+        return Err("Temperature must be between 0 and 2.".into());
+    }
+    if !config.top_p.is_finite() || !(0.0..=1.0).contains(&config.top_p) {
+        return Err("Top-P must be between 0 and 1.".into());
+    }
+    if !(1..=200).contains(&config.top_k) {
+        return Err("Top-K must be between 1 and 200.".into());
+    }
+    if !config.min_p.is_finite() || !(0.0..=0.2).contains(&config.min_p) {
+        return Err("Min-P must be between 0 and 0.2.".into());
+    }
+    if !config.repeat_penalty.is_finite() || !(1.0..=2.0).contains(&config.repeat_penalty) {
+        return Err("Repeat penalty must be between 1 and 2.".into());
+    }
+    if !config.presence_penalty.is_finite() || !(0.0..=2.0).contains(&config.presence_penalty) {
+        return Err("Presence penalty must be between 0 and 2.".into());
+    }
+    if config.main_gpu.is_some_and(|gpu| gpu > 31) {
+        return Err("Main GPU must be between 0 and 31.".into());
+    }
+    if let Some(split) = config
+        .tensor_split
+        .as_deref()
+        .filter(|split| !split.trim().is_empty())
+    {
+        let values: Result<Vec<f32>, _> = split
+            .split(',')
+            .map(|part| {
+                let part = part.trim();
+                let valid_format = !part.is_empty()
+                    && part
+                        .chars()
+                        .all(|character| character.is_ascii_digit() || ".+-eE".contains(character))
+                    && part.chars().any(|character| character.is_ascii_digit());
+                if !valid_format {
+                    return Err(());
+                }
+                part.parse::<f32>().map_err(|_| ())
+            })
+            .collect();
+        let values = values.map_err(|_| {
+            "Tensor split must be comma-separated non-negative numbers.".to_string()
+        })?;
+        if values.is_empty()
+            || values.len() > 16
+            || values
+                .iter()
+                .any(|value| !value.is_finite() || *value < 0.0)
+            || !values.iter().any(|value| *value > 0.0)
+        {
+            return Err("Tensor split must contain up to 16 non-negative numbers and at least one value above zero.".into());
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn start_llama_server(
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
     config: ServerStartConfig,
 ) -> Result<String, String> {
+    validate_start_config(&config)?;
+
     {
         let updating = state.llama_cpp_updating.lock().map_err(|e| e.to_string())?;
         if *updating {
@@ -99,9 +188,9 @@ pub async fn start_llama_server(
         args.push(main_gpu.to_string());
     }
     if let Some(ref split) = config.tensor_split {
-        if !split.is_empty() {
+        if !split.trim().is_empty() {
             args.push("--tensor-split".into());
-            args.push(split.clone());
+            args.push(split.trim().to_string());
         }
     }
     if config.no_mmap {
@@ -168,6 +257,76 @@ pub async fn start_llama_server(
     });
 
     Ok(format!("Server started on {}:{}", config.host, config.port))
+}
+
+#[cfg(test)]
+mod validation_tests {
+    use super::validate_start_config;
+    use crate::bindings::ServerStartConfig;
+
+    fn valid_config() -> ServerStartConfig {
+        ServerStartConfig {
+            exe_path: "server".into(),
+            model_path: "model.gguf".into(),
+            mmproj_path: None,
+            host: "127.0.0.1".into(),
+            port: 8080,
+            ctx_size: 8192,
+            ngl: 99,
+            temp: 0.7,
+            threads: 0,
+            batch_size: 512,
+            flash_attn: false,
+            top_p: 0.9,
+            top_k: 40,
+            min_p: 0.05,
+            repeat_penalty: 1.1,
+            presence_penalty: 0.0,
+            main_gpu: None,
+            tensor_split: None,
+            no_mmap: false,
+            no_webui: false,
+        }
+    }
+
+    #[test]
+    fn accepts_loopback_and_network_ipv4_bind_addresses() {
+        assert!(validate_start_config(&valid_config()).is_ok());
+        let mut config = valid_config();
+        config.host = "0.0.0.0".into();
+        assert!(validate_start_config(&config).is_ok());
+        config.host = "::1".into();
+        assert!(validate_start_config(&config).unwrap_err().contains("IPv6"));
+        config.host = "invalid host".into();
+        assert!(validate_start_config(&config).unwrap_err().contains("Host"));
+        config.host = " 127.0.0.1 ".into();
+        assert!(validate_start_config(&config)
+            .unwrap_err()
+            .contains("whitespace"));
+    }
+
+    #[test]
+    fn rejects_invalid_ranges_and_non_finite_values() {
+        let mut config = valid_config();
+        config.ctx_size = 0;
+        assert!(validate_start_config(&config)
+            .unwrap_err()
+            .contains("Context"));
+        config = valid_config();
+        config.temp = f32::NAN;
+        assert!(validate_start_config(&config)
+            .unwrap_err()
+            .contains("Temperature"));
+        config = valid_config();
+        config.tensor_split = Some("0.5,-0.1".into());
+        assert!(validate_start_config(&config)
+            .unwrap_err()
+            .contains("Tensor split"));
+        config.tensor_split = Some("Infinity,1".into());
+        assert!(validate_start_config(&config)
+            .unwrap_err()
+            .contains("Tensor split"));
+    }
 }
 
 #[tauri::command]

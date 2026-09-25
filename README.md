@@ -2,26 +2,34 @@
 
 A Windows-focused desktop app for running local [llama.cpp](https://github.com/ggerganov/llama.cpp) models, downloading GGUF files from Hugging Face, and optionally using [Open WebUI](https://github.com/open-webui/open-webui) as the chat front end.
 
-Built with **Tauri 2**, **React**, and **Rust**. Current version: **v1.1**.
+Built with **Tauri 2**, **React**, and **Rust**. Current version: **v1.2.0**.
 
-## What's new in v1.1
+## What's new in v1.2.0
 
-### Added
+Version 1.2.0 adds safer, more flexible Open WebUI environment management and brings together launcher improvements for server safety, download recovery, diagnostics, and model preflight checks.
 
-- **In-app llama.cpp updates** from the **Settings** tab — pick CPU / CUDA / Vulkan / HIP, download the latest Windows build from GitHub Releases, and install it next to your current `llama-server.exe`.
-- **Auto-download matching mmproj** (optional on Downloads) — queue a same-repo vision projector with the model (name match, or companions like `mmproj-F16.gguf`).
-- Dedicated **Settings** tab for update controls so the Server workspace stays focused on launch.
+### Open WebUI environment management
 
-### Fixes
+- **Choose where a new environment is created.** By default, setup creates `.venv` beside the selected `llama-server` executable. Use **Choose .venv location** to select a different parent folder; the environment directory keeps the standard `.venv` name. The selected parent is remembered, and **Use llama-server folder** restores the default.
+- **Remove and recreate an environment.** **Delete selected .venv** asks for confirmation before permanently deleting the selected Python virtual environment. Removal is restricted in the backend to the currently selected, real directory containing `pyvenv.cfg`, and the saved selection is cleared.
+- **Protect existing folders.** Setup reuses a compatible Python 3.12 `.venv`, but never overwrites an existing incompatible directory. Select another existing environment, delete the selected valid venv, or choose a different parent folder.
+- Setup uses Python 3.12. If it is not available on Windows, the launcher can install a separate user-level runtime with the official Python Install Manager without replacing other Python installations.
 
-- Safer Hugging Face resume/discard (correct Tauri camelCase args, revision pinning, incomplete-file protection).
-- Generic Unsloth-style `mmproj-F16.gguf` companions are recognized and saved with a repo suffix so E4B/12B packs do not overwrite each other.
-- Server start rejects mmproj / model embedding mismatches before llama.cpp crashes.
-- Open WebUI status tracks the live port (and Stop can kill orphan listeners); intentional Stop is no longer undone by health polling.
-- Tighter vision-projector auto-pair; intentional **None** sticks across restarts.
-- Error toasts stay longer with copy/dismiss; startup and download UI are lighter under load.
+### Server safety and diagnostics
 
-See [CHANGELOG.md](CHANGELOG.md) for the full version history.
+- Server access defaults to **Local only**. Binding to **Network accessible** displays an unauthenticated-API warning and requires confirmation each time the server starts.
+- Rust validates launch addresses, ports, memory/context and sampling ranges, GPU selection, and tensor splits at the IPC boundary.
+- The Server tab provides an advisory RAM/VRAM preflight using model size, context, GPU layers, and available hardware memory.
+- Settings can export recent logs, build details, and hardware data as JSON with secret fields and common personal paths redacted.
+- llama-server health checks require recognized llama.cpp health payloads, preventing unrelated web services on the configured port from being reported as the model server.
+
+### Recoverability and release packaging
+
+- Hugging Face download queue metadata survives restarts; credentials are never persisted, and gated downloads request a token again when resumed.
+- Frontend behavior tests are included in CI, alongside TypeScript, lint, formatting, Rust tests, Clippy, and the production frontend build.
+- Windows release builds publish the NSIS `.exe` installer only; MSI packaging is disabled.
+
+See [CHANGELOG.md](CHANGELOG.md) for the complete version history and fixes.
 
 ## Quick start
 
@@ -38,6 +46,9 @@ See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 - Launch and stop `llama-server` with saved executable, model, host, port, GPU layers, context size, and sampling settings.
 - **Update llama.cpp in-app** from GitHub Releases (Settings tab): choose CPU / CUDA / Vulkan / HIP, download the matching Windows build, and install it next to your current executable.
 - **Server settings lock while running** — context, port, GPU layers, and other launch options cannot be changed until you stop the server.
+- **Explicit network exposure choice** — local-only is the default; network binding warns in the UI and requires confirmation before starting the unauthenticated API.
+- **Advisory memory preflight** — estimates RAM/VRAM pressure from model size, context length, GPU layers, and available hardware memory before launch.
+- Rust validates launch settings again at the IPC boundary, including host/port, sampling ranges, batch/context sizes, and tensor splits.
 - Scan model folders recursively for `.gguf` files and pick models from a searchable list.
 - **Vision projector (mmproj)** support for multimodal models — auto-pair projectors in the same folder or pick manually.
 - **Use-case presets** for common tasks (code, chat, writing, research, roleplay, Gemma 4, Qwen 3.6, and more).
@@ -54,13 +65,16 @@ See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 - Download public, gated, or private GGUF models directly into your chosen model folder.
 - Supports llama.cpp-style shorthand such as `owner/model-GGUF:Q4_K_M`.
 - Shows file sizes (including LFS-backed GGUFs).
-- **Download queue**: add multiple models and let the launcher download them one at a time.
+- **Download queue**: add multiple models and let the launcher download them one at a time; pending queue metadata survives restarts, but HF tokens are never persisted and must be re-entered for gated downloads.
 - **Resume interrupted downloads** with partial file retention and discard support.
 - **Auto-download matching mmproj** (optional): when enabled on the Downloads tab, queuing a model also queues a name-matched projector from the same repo.
 
 ### Open WebUI
 
-- Start and stop Open WebUI from a local Python virtual environment (**llama-server must be running first**).
+- Set up Open WebUI in a standard `.venv` folder beside the selected `llama-server` executable by default, or choose another parent folder for the new `.venv`; the setup never selects Python 3.11.
+- Remove the currently selected Python virtual environment after an explicit confirmation, then create a fresh `.venv` in the default or chosen parent folder.
+- If Python 3.12 is missing on Windows, the official Python Install Manager can install a separate runtime for your Windows user without replacing other Python installations.
+- Start and stop Open WebUI from the managed environment (**llama-server must be running first**).
 - Automatically points Open WebUI at the llama.cpp OpenAI-compatible endpoint (`http://host:port/v1`).
 - **Restores logs and running status** when you reopen the app after a restart.
 - Check **installed vs latest PyPI version** and run `pip install --upgrade open-webui` from the **Settings** tab with streamed log output.
@@ -69,6 +83,8 @@ See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 
 - **Server**, **Downloads**, **Settings**, and **Help** tabs with searchable in-app documentation.
 - Dark and light themes with saved preference.
+- **Redacted diagnostics export** from Settings includes recent logs, llama.cpp/app build information, and hardware stats.
+- Frontend behavior tests run in CI alongside the TypeScript, lint, formatting, and Rust checks.
 - Settings persisted locally (executable path, model folders, server defaults, Open WebUI venv, theme) with improved startup save reliability.
 
 ## Requirements
@@ -77,7 +93,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 | -------------- | ----------------------------------------------------------------------------------- |
 | **OS**         | Windows 10/11 (x64)                                                                 |
 | **llama.cpp**  | A local `llama-server.exe` build                                                    |
-| **Open WebUI** | Optional — Python venv with `open-webui` installed                                  |
+| **Open WebUI** | Optional — Python 3.12 venv with `open-webui` installed                             |
 | **VRAM stats** | Optional — NVIDIA GPU (VRAM monitoring uses NVML; system RAM works on all machines) |
 
 ## Development
@@ -102,14 +118,16 @@ npm run dev
 
 ### Open WebUI venv (optional)
 
+To make a manual environment compatible with the app, use Python 3.12 in the same folder as the selected `llama-server.exe`:
+
 ```powershell
-cd C:\llama.cpp
-python -m venv .venv
+cd C:\llama.cpp\build\bin\Release
+py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install open-webui
 ```
 
-Then select `C:\llama.cpp\.venv` in the Open WebUI panel on the Server tab. Use **Update Open WebUI** on the Settings tab to upgrade when a newer PyPI release is available.
+Alternatively, select `llama-server.exe` in the app and use **Set up / Repair Open WebUI environment** on the Server or Settings tab. By default, the app creates the standard `.venv` directory beside that executable. Use **Choose .venv location** to select a different parent folder; setup still creates a directory named `.venv` inside it. The chosen parent folder is remembered locally, and **Use llama-server folder** restores the default. Setup uses Python 3.12 only and installs Open WebUI. An existing `.venv` is never overwritten: a valid Python 3.12 environment is reused, while an incompatible one must be removed or selected with **Browse for existing venv**. **Delete selected .venv** permanently removes the currently selected virtual environment after confirmation; it refuses folders that are not valid Python venvs. If Python 3.12 is missing on Windows, the official Python Install Manager can install a separate runtime for your user. Setup confirms before downloading; existing Python installations are not replaced. Use **Update Open WebUI** on the Settings tab to upgrade when a newer PyPI release is available.
 
 ### Quality checks
 
@@ -117,16 +135,14 @@ CI on `main` runs TypeScript, ESLint, Prettier, `cargo fmt`, `cargo clippy`, Rus
 
 ## Releases
 
-Prebuilt Windows installers are published on [GitHub Releases](https://github.com/Tyraxiss/LLama-Cpp-Launcher/releases) when a version tag is pushed:
-
-Release tags use the short `vMAJOR.MINOR` format (for example `v1.1`, then `v1.2`). The build maps `v1.1` to semantic app version `1.1.0`.
+Prebuilt Windows installers are published on [GitHub Releases](https://github.com/Tyraxiss/LLama-Cpp-Launcher/releases) when a version tag is pushed. Tags may be short (`v1.2`, which maps to `1.2.0`) or full semantic versions (for example, `v1.2.0`). The workflow builds and publishes the NSIS `.exe` installer only; it does not build MSI packages.
 
 ```powershell
-git tag v1.1
-git push origin v1.1
+git tag v1.2.0
+git push origin v1.2.0
 ```
 
-The release workflow builds the NSIS `.exe` installer and attaches it to the GitHub Release. See [CHANGELOG.md](CHANGELOG.md) for version history.
+See [CHANGELOG.md](CHANGELOG.md) for version history.
 
 ## License
 

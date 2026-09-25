@@ -4,6 +4,41 @@ All notable changes to LLama C++ Launcher are documented here.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-24
+
+### Added
+
+- Choose a parent folder for a new Open WebUI environment; the app creates the standard `.venv` directory there, defaulting to the selected `llama-server` folder.
+- Delete the currently selected Open WebUI environment after confirmation. Backend checks reject symlink/non-venv folders, restrict deletion to the configured environment, and clear the persisted selection.
+- Explicit server network-access selection with a warning and per-start confirmation for exposing the unauthenticated API.
+- Advisory RAM/VRAM preflight using model size, context, GPU layers, and available memory.
+- Persistent Hugging Face download-queue metadata without saved tokens; private/gated items request credentials on resume.
+- Redacted JSON diagnostics export with recent logs, app/llama.cpp build information, and hardware stats.
+- Frontend behavior tests in CI.
+
+### Fixed and improved
+
+- Make Open WebUI setup create/use Python 3.12 only, reuse a compatible existing `.venv`, and leave incompatible existing folders untouched rather than overwriting them.
+- Add a recoverable per-user Python 3.12 runtime installation path on Windows without replacing other Python installations.
+- Validate llama-server addresses, ports, context/batch and sampling ranges, GPU selection, and tensor splits in Rust at the IPC boundary.
+- Launch Open WebUI through the selected venv's own interpreter and resolve its installed entry point instead of relying on a possibly stale Windows console launcher.
+- Require recognized llama.cpp health payloads so generic HTTP services are not mistaken for llama-server.
+- Build and publish the Windows NSIS `.exe` installer only; MSI packaging is disabled.
+- Keep HF resume/cancel queue credentials transient and distinguish queued items that need a token after restart.
+
+## [1.1.1] - 2026-09-24
+
+### Added
+
+- Set up or repair Open WebUI by creating a managed Python 3.12 venv and installing Open WebUI automatically.
+- Build and publish the Windows NSIS `.exe` installer only; MSI packaging is disabled for this release flow.
+
+### Fixed
+
+- Stop managed Open WebUI setup from selecting Python 3.11; install a separate Python 3.12 runtime for the Windows user when needed without replacing existing Python installations.
+- Reject incompatible Python versions when using an Open WebUI venv in the launcher.
+- Restore the Open WebUI setup, update, start, and stop backend commands.
+
 ## [1.1] - 2026-09-24
 
 ### Fixed

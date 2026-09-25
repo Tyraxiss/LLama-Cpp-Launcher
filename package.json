@@ -1,11 +1,12 @@
 {
   "name": "llama-cpp-launcher",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
     "dev:web": "vite",
     "build:web": "node ./node_modules/typescript/bin/tsc && node ./node_modules/vite/bin/vite.js build",
+    "test:unit": "node --test src/utils/improvements.test.mjs",
     "dev": "tauri dev",
     "build": "tauri build",
     "preview": "vite preview",

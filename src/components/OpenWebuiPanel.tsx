@@ -1,4 +1,15 @@
-import { Copy, FolderOpen, Globe, Loader, Play, Server, Square, Wifi } from "lucide-react";
+import {
+  Copy,
+  Download,
+  FolderOpen,
+  Globe,
+  Loader,
+  Trash2,
+  Play,
+  Server,
+  Square,
+  Wifi,
+} from "lucide-react";
 import type { ProcessStatus } from "../hooks/useLlamaServer";
 
 interface OpenWebuiPanelProps {
@@ -11,7 +22,14 @@ interface OpenWebuiPanelProps {
   isRunning: boolean;
   canStart: boolean;
   updating: boolean;
+  settingUp: boolean;
+  onSetup: () => void;
+  newVenvPath: string;
+  canUseLlamaServerVenvParent: boolean;
+  onPickVenvParent: () => void;
+  onUseLlamaServerVenvParent: () => void;
   onPickVenv: () => void;
+  onRemoveEnvironment: () => void;
   onHostChange: (host: string) => void;
   onPortChange: (port: number) => void;
   onStart: () => void;
@@ -30,7 +48,14 @@ export function OpenWebuiPanel({
   isRunning,
   canStart,
   updating,
+  settingUp,
+  onSetup,
+  newVenvPath,
+  canUseLlamaServerVenvParent,
+  onPickVenvParent,
+  onUseLlamaServerVenvParent,
   onPickVenv,
+  onRemoveEnvironment,
   onHostChange,
   onPortChange,
   onStart,
@@ -47,23 +72,71 @@ export function OpenWebuiPanel({
           ? "Error"
           : "Stopped";
 
-  const controlsDisabled = isRunning || updating;
+  const controlsDisabled = isRunning || updating || settingUp;
 
   return (
     <div className="card">
       <div className="card-header">
         <Globe size={14} className="icon" />
         <h3>Open WebUI</h3>
-        <span className={`mini-status ${status}`}>{statusLabel}</span>
+        <span className={`mini-status ${settingUp ? "starting" : status}`}>
+          {settingUp ? "Setting up" : statusLabel}
+        </span>
       </div>
 
-      <button className="btn btn-wide" onClick={onPickVenv} disabled={updating}>
+      <button
+        className="btn btn-wide btn-success"
+        onClick={onSetup}
+        disabled={isRunning || updating || settingUp}
+      >
+        {settingUp ? (
+          <>
+            <Loader size={13} style={{ animation: "spin 1s linear infinite" }} />
+            Setting up Python and Open WebUI...
+          </>
+        ) : (
+          <>
+            <Download size={13} />
+            Set up Open WebUI environment
+          </>
+        )}
+      </button>
+      <p className="text-muted" style={{ fontSize: 10, margin: "5px 0" }}>
+        Creates a standard .venv beside llama-server or in your chosen parent folder using Python
+        3.12. Existing environments are never overwritten. Other Python installs are left unchanged.
+      </p>
+      <div className="path-display">New environment location: {newVenvPath}</div>
+      <div className="split-actions">
+        <button className="btn btn-sm" onClick={onPickVenvParent} disabled={controlsDisabled}>
+          <FolderOpen size={12} />
+          Choose .venv location
+        </button>
+        <button
+          className="btn btn-sm"
+          onClick={onUseLlamaServerVenvParent}
+          disabled={controlsDisabled || !canUseLlamaServerVenvParent}
+        >
+          Use llama-server folder
+        </button>
+      </div>
+
+      <button className="btn btn-wide" onClick={onPickVenv} disabled={controlsDisabled}>
         <FolderOpen size={13} />
-        Browse for venv
+        Browse for existing venv
       </button>
       <div className={`path-display ${!venvPath ? "empty" : ""}`}>
         {venvPath || "No Open WebUI venv selected"}
       </div>
+      {venvPath && (
+        <button
+          className="btn btn-wide btn-danger"
+          onClick={onRemoveEnvironment}
+          disabled={controlsDisabled}
+        >
+          <Trash2 size={13} />
+          Delete selected .venv
+        </button>
+      )}
 
       <div className="compact-settings">
         <label>

@@ -1898,6 +1898,18 @@ input[type="range"]::-webkit-slider-thumb:hover {
   font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
 }
 
+.control-info.network-warning {
+  justify-content: flex-start;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warning) 9%, var(--bg-surface));
+  color: var(--warning-text);
+  font-family: inherit;
+  line-height: 1.45;
+}
+
 .control-info.compact {
   justify-content: flex-start;
   overflow: hidden;

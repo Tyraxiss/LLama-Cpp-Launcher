@@ -34,7 +34,10 @@ export interface HfDownloadQueueItem {
   file_path: string;
   filename: string;
   target_dir: string;
+  /** Runtime-only credential; never included in persisted queue metadata. */
   token: string | null;
+  tokenRequired?: boolean;
+  needsToken?: boolean;
   status: HfDownloadQueueStatus;
   error?: string;
   result_path?: string;

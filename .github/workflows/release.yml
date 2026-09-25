@@ -33,7 +33,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: node scripts/sync-release-version.mjs
 
-      - name: Build Tauri installers
+      - name: Build Windows NSIS EXE installer
         run: npm run build -- --bundles nsis
 
       - name: Write release notes from CHANGELOG

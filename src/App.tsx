@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 import { HfDownloadPanel } from "./components/HfDownloadPanel";
 import { HelpPanel } from "./components/HelpPanel";
 import { LogPanel } from "./components/LogPanel";
@@ -78,6 +79,18 @@ function App() {
   const [activeTab, setActiveTab] = useState<"server" | "downloads" | "settings" | "help">(
     "server",
   );
+  const [venvParentPath, setVenvParentPath] = useState(() => {
+    try {
+      return localStorage.getItem("llama-launcher-open-webui-venv-parent") ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const llamaServerFolder = exePath ? exePath.replace(/[\\/][^\\/]*$/, "") : "";
+  const effectiveVenvParent = venvParentPath || llamaServerFolder;
+  const newVenvPath = effectiveVenvParent
+    ? `${effectiveVenvParent}${effectiveVenvParent.includes("\\") ? "\\" : "/"}.venv`
+    : "Select llama-server to choose the default .venv location";
   const resourceStats = useResourceStats();
 
   const hf = useHfDownload({
@@ -124,7 +137,10 @@ function App() {
   });
 
   const openWebui = useOpenWebui({
+    exePath,
     openWebuiVenvPath,
+    setOpenWebuiVenvPath,
+    venvParentPath: effectiveVenvParent,
     openWebuiHost,
     openWebuiPort,
     serverSettings,
@@ -150,11 +166,36 @@ function App() {
     const selected = await open({
       directory: true,
       multiple: false,
-      title: "Select Open WebUI virtual environment folder",
+      title: "Select existing Open WebUI virtual environment folder",
     });
     if (selected && typeof selected === "string") {
       setOpenWebuiVenvPath(selected);
       await saveAppConfig(buildCurrentConfig(undefined, { openWebui: { venvPath: selected } }));
+    }
+  };
+
+  const pickOpenWebuiVenvParent = async () => {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: "Choose the parent folder for the new .venv",
+    });
+    if (selected && typeof selected === "string") {
+      setVenvParentPath(selected);
+      try {
+        localStorage.setItem("llama-launcher-open-webui-venv-parent", selected);
+      } catch {
+        // Keep the selection for this session if browser storage is unavailable.
+      }
+    }
+  };
+
+  const useLlamaServerVenvParent = () => {
+    setVenvParentPath("");
+    try {
+      localStorage.removeItem("llama-launcher-open-webui-venv-parent");
+    } catch {
+      // The default is still used for this session.
     }
   };
 
@@ -213,6 +254,24 @@ function App() {
           : "Stopped";
 
   const selectedModelInfo = models.find((m) => m.path === modelPath);
+  const [externalModelBytes, setExternalModelBytes] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (modelPath && !selectedModelInfo) {
+      void invoke<{ size_bytes: number } | null>("get_model_info", { path: modelPath })
+        .then((info) => {
+          if (!cancelled) setExternalModelBytes(info?.size_bytes ?? null);
+        })
+        .catch(() => {
+          if (!cancelled) setExternalModelBytes(null);
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [modelPath, selectedModelInfo]);
+  const selectedModelBytes = selectedModelInfo?.size_bytes ?? externalModelBytes;
 
   const hfDownloadPanel = (
     <HfDownloadPanel
@@ -436,7 +495,14 @@ function App() {
               isRunning={openWebui.openWebuiRunning}
               canStart={openWebui.canStart}
               updating={openWebui.openWebuiUpdating}
+              settingUp={openWebui.openWebuiSettingUp}
+              onSetup={openWebui.handleSetup}
+              newVenvPath={newVenvPath}
+              canUseLlamaServerVenvParent={Boolean(venvParentPath)}
+              onPickVenvParent={pickOpenWebuiVenvParent}
+              onUseLlamaServerVenvParent={useLlamaServerVenvParent}
               onPickVenv={pickOpenWebuiVenv}
+              onRemoveEnvironment={openWebui.handleRemoveEnvironment}
               onHostChange={setOpenWebuiHost}
               onPortChange={setOpenWebuiPort}
               onStart={openWebui.handleStart}
@@ -488,6 +554,8 @@ function App() {
                 selectedModelInfo?.filename ||
                 (modelPath ? modelPath.split(/[/\\]/).pop() || modelPath : "")
               }
+              selectedModelBytes={selectedModelBytes}
+              resourceStats={resourceStats}
               onChange={(patch) => {
                 setSelectedPreset(null);
                 setServerSettings((current) => ({ ...current, ...patch }));
@@ -685,8 +753,23 @@ function App() {
           openWebuiLatestVersion={openWebui.openWebuiLatestVersion}
           openWebuiUpdateAvailable={openWebui.updateAvailable}
           openWebuiUpdating={openWebui.openWebuiUpdating}
+          openWebuiSettingUp={openWebui.openWebuiSettingUp}
+          newVenvPath={newVenvPath}
+          canUseLlamaServerVenvParent={Boolean(venvParentPath)}
+          onPickOpenWebuiVenvParent={pickOpenWebuiVenvParent}
+          onUseLlamaServerVenvParent={useLlamaServerVenvParent}
+          onRemoveOpenWebuiEnvironment={openWebui.handleRemoveEnvironment}
+          onOpenWebuiSetup={openWebui.handleSetup}
           onOpenWebuiUpdate={openWebui.handleUpdate}
           onOpenWebuiRefreshVersion={openWebui.refreshOpenWebuiVersions}
+          diagnostics={{
+            appVersion: __APP_VERSION__,
+            llamaTag: llamaUpdate.updateInfo?.installed_tag ?? null,
+            llamaBackend: llamaUpdate.selectedBackend,
+            serverLog: server.serverLog,
+            openWebuiLog: openWebui.openWebuiLog,
+            resourceStats,
+          }}
         />
       ) : (
         <HelpPanel />

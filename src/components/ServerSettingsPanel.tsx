@@ -1,5 +1,7 @@
-import { SlidersHorizontal } from "lucide-react";
+import { AlertTriangle, SlidersHorizontal } from "lucide-react";
 import type { ServerSettings } from "../types";
+import type { ResourceStats } from "../types";
+import { estimateModelMemory, isLocalBindAddress } from "../utils/improvements.mjs";
 
 interface ServerSettingsPanelProps {
   settings: ServerSettings;
@@ -7,6 +9,8 @@ interface ServerSettingsPanelProps {
   isRunning: boolean;
   modelPath: string;
   selectedModelFilename: string;
+  selectedModelBytes: number | null;
+  resourceStats: ResourceStats | null;
   onChange: (patch: Partial<ServerSettings>) => void;
 }
 
@@ -16,6 +20,8 @@ export function ServerSettingsPanel({
   isRunning,
   modelPath,
   selectedModelFilename,
+  selectedModelBytes,
+  resourceStats,
   onChange,
 }: ServerSettingsPanelProps) {
   const {
@@ -48,6 +54,14 @@ export function ServerSettingsPanel({
           : "Stopped";
 
   const settingsLocked = isRunning;
+  const networkAccessible = !isLocalBindAddress(host);
+  const memoryEstimate = estimateModelMemory({
+    modelBytes: selectedModelBytes ?? 0,
+    contextSize: ctxSize,
+    gpuLayers: ngl,
+    mainGpu,
+    stats: resourceStats,
+  });
 
   return (
     <>
@@ -91,15 +105,28 @@ export function ServerSettingsPanel({
         </div>
 
         <div className="form-row">
-          <span className="form-label">Host</span>
-          <input
-            type="text"
+          <span className="form-label">Network Access</span>
+          <select
             className="form-input"
-            value={host}
+            value={networkAccessible ? "network" : "local"}
             disabled={settingsLocked}
-            onChange={(e) => onChange({ host: e.target.value || "127.0.0.1" })}
-          />
+            onChange={(e) =>
+              onChange({ host: e.target.value === "network" ? "0.0.0.0" : "127.0.0.1" })
+            }
+          >
+            <option value="local">Local only (127.0.0.1)</option>
+            <option value="network">Network accessible (0.0.0.0)</option>
+          </select>
         </div>
+        {networkAccessible && (
+          <div className="control-info network-warning" role="alert">
+            <AlertTriangle size={13} />
+            <span>
+              Network access exposes the unauthenticated llama.cpp API to your local network. Only
+              enable it on a trusted network.
+            </span>
+          </div>
+        )}
 
         <div className="form-row">
           <span className="form-label">Temperature</span>
@@ -327,6 +354,20 @@ export function ServerSettingsPanel({
         <div className="card-header">
           <h3>Server Status</h3>
         </div>
+        <div
+          className={`control-info ${memoryEstimate.status === "warning" ? "network-warning" : ""}`}
+          role="status"
+        >
+          {memoryEstimate.status === "warning" && <AlertTriangle size={13} />}
+          <span>
+            <strong>Approximate memory preflight:</strong> {memoryEstimate.message}
+          </span>
+        </div>
+        {memoryEstimate.details.map((detail) => (
+          <div key={detail} className="text-muted" style={{ fontSize: 11, marginTop: 4 }}>
+            {detail}
+          </div>
+        ))}
         <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between" }}>
             <span className="text-muted">Status</span>

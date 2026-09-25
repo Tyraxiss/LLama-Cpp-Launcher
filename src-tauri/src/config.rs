@@ -74,18 +74,10 @@ pub fn default_open_webui_venv_path() -> Option<String> {
 
     common_paths
         .into_iter()
-        // Detect the interpreter even if the console script is missing; the
-        // Settings update can recreate that script with pip.
+        // Detect the venv by its interpreter; launch Open WebUI through Python
+        // so a generated console script cannot retain a stale interpreter path.
         .find(|path| open_webui_python(path).is_file())
         .map(|path| path.to_string_lossy().to_string())
-}
-
-pub fn open_webui_executable(venv_path: &Path) -> PathBuf {
-    if cfg!(target_os = "windows") {
-        venv_path.join("Scripts").join("open-webui.exe")
-    } else {
-        venv_path.join("bin").join("open-webui")
-    }
 }
 
 pub fn open_webui_python(venv_path: &Path) -> PathBuf {

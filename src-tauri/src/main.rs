@@ -2,6 +2,7 @@
 
 mod bindings;
 mod config;
+mod diagnostics;
 mod gguf;
 mod health;
 mod hf;
@@ -44,8 +45,10 @@ fn main() {
             config::auto_detect_open_webui_venv,
             config::load_config,
             config::save_config,
+            diagnostics::save_diagnostics,
             models::scan_models,
             models::suggest_mmproj,
+            models::get_model_info,
             hf::list_hf_gguf_files,
             hf::get_hf_partial_download,
             hf::discard_hf_partial_download,
@@ -57,6 +60,8 @@ fn main() {
             server::get_server_log,
             server::clear_server_log,
             open_webui::get_open_webui_version,
+            open_webui::setup_open_webui,
+            open_webui::remove_open_webui_venv,
             open_webui::get_open_webui_latest_version,
             open_webui::update_open_webui,
             open_webui::start_open_webui,

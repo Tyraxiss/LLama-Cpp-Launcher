@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { AppConfig, ServerSettings } from "../types";
+import { isLocalBindAddress, validateServerSettings } from "../utils/improvements.mjs";
 import { appendBoundedLog } from "../utils/config";
 import type { ToastType } from "./useToast";
 
@@ -15,6 +16,7 @@ interface UseLlamaServerOptions {
   buildCurrentConfig: (base?: AppConfig) => AppConfig;
   saveAppConfig: (cfg: AppConfig) => Promise<void>;
   showToast: (msg: string, type: ToastType) => void;
+  confirmNetworkAccess?: (host: string) => boolean;
 }
 
 export function useLlamaServer({
@@ -25,6 +27,10 @@ export function useLlamaServer({
   buildCurrentConfig,
   saveAppConfig,
   showToast,
+  confirmNetworkAccess = (host) =>
+    window.confirm(
+      `This will bind llama-server to ${host} and expose its unauthenticated API to your local network. Continue only on a trusted network. Continue?`,
+    ),
 }: UseLlamaServerOptions) {
   const [isRunning, setIsRunning] = useState(false);
   const [isManaged, setIsManaged] = useState(false);
@@ -224,6 +230,14 @@ export function useLlamaServer({
       showToast("Please select a model", "error");
       return;
     }
+    const validation = validateServerSettings(serverSettings);
+    if (!validation.valid) {
+      showToast(validation.errors.join(" "), "error");
+      return;
+    }
+    if (!isLocalBindAddress(serverSettings.host) && !confirmNetworkAccess(serverSettings.host)) {
+      return;
+    }
 
     setExternalServerEndpoint(null);
     setServerStatus("starting");
@@ -277,6 +291,7 @@ export function useLlamaServer({
     saveAppConfig,
     serverSettings,
     showToast,
+    confirmNetworkAccess,
   ]);
 
   const handleStop = useCallback(async () => {

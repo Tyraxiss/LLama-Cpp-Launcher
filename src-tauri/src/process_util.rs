@@ -41,7 +41,11 @@ pub fn process_details_match_open_webui(details: &str, venv_path: &Path) -> bool
     let command_line = command_line.replace('_', "-");
     let is_open_webui_command = command_line.starts_with("open-webui ")
         || command_line.contains("\\open-webui.exe ")
-        || command_line.contains("-m open-webui ");
+        || command_line.contains("-m open-webui ")
+        || (command_line.contains("from importlib.metadata import entry-points;")
+            && command_line.contains("ep.name")
+            && command_line.contains("open-webui")
+            && command_line.contains("serve"));
     if !is_open_webui_command {
         return false;
     }
@@ -148,6 +152,10 @@ mod tests {
         ));
         assert!(process_details_match_open_webui(
             "C:\\Users\\me\\llama.cpp\\.venv\\Scripts\\open-webui.exe\nopen-webui serve",
+            Path::new(r"C:\Users\me\llama.cpp\.venv")
+        ));
+        assert!(process_details_match_open_webui(
+            "C:\\Users\\me\\llama.cpp\\.venv\\Scripts\\python.exe\npython -c from importlib.metadata import entry_points; next(ep for ep in entry_points(group='console_scripts') if ep.name == 'open-webui').load()() serve --host 127.0.0.1",
             Path::new(r"C:\Users\me\llama.cpp\.venv")
         ));
         assert!(!process_details_match_open_webui(
