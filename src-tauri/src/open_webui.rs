@@ -188,20 +188,61 @@ fn managed_venv_path(root: &Path) -> Result<(PathBuf, Option<PathBuf>), String> 
             path.display()
         ));
     }
-    let pip =
-        run_hidden_command_in(&python, &["-m", "pip", "--version"], &path).map_err(|error| {
-            format!(
-                "Could not inspect existing .venv {}: {error}",
-                path.display()
-            )
-        })?;
-    if !pip.status.success() {
-        return Err(format!(
-            "A .venv folder already exists beside llama-server but does not contain pip: {}. It was not modified.",
-            path.display()
-        ));
-    }
     Ok((path, Some(python)))
+}
+
+fn ensure_venv_pip_with(
+    venv_path: &Path,
+    mut pip_available: impl FnMut() -> Result<bool, String>,
+    restore_pip: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    if pip_available().unwrap_or(false) {
+        return Ok(());
+    }
+
+    restore_pip().map_err(|error| {
+        format!(
+            "The Python 3.12 environment at {} does not have pip, and Python could not restore it with ensurepip. The existing environment was not deleted. {error}",
+            venv_path.display()
+        )
+    })?;
+
+    match pip_available() {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(format!(
+            "Python could not restore pip in the Open WebUI environment {}. The existing environment was not deleted.",
+            venv_path.display()
+        )),
+        Err(error) => Err(format!(
+            "Could not verify pip in the Open WebUI environment {} after repair: {error}",
+            venv_path.display()
+        )),
+    }
+}
+
+fn ensure_venv_pip(
+    app_handle: &tauri::AppHandle,
+    python: &Path,
+    venv_path: &Path,
+    working_dir: &Path,
+) -> Result<(), String> {
+    ensure_venv_pip_with(
+        venv_path,
+        || {
+            run_hidden_command_in(python, &["-m", "pip", "--version"], venv_path)
+                .map(|output| output.status.success())
+                .map_err(|error| error.to_string())
+        },
+        || {
+            run_setup_command(
+                app_handle,
+                python,
+                &["-m".into(), "ensurepip".into(), "--upgrade".into()],
+                working_dir,
+                "Restoring pip in the existing Python 3.12 environment",
+            )
+        },
+    )
 }
 
 #[cfg(test)]
@@ -350,6 +391,7 @@ fn setup_open_webui_sync(
             venv_python.display()
         ));
     }
+    ensure_venv_pip(app_handle, &venv_python, &venv_path, root)?;
 
     run_setup_command(
         app_handle,
@@ -436,6 +478,36 @@ pub async fn setup_open_webui(
     task_result.map_err(|error| format!("Open WebUI setup task failed: {error}"))?
 }
 
+fn selected_venv_for_removal(
+    requested_path: &str,
+    configured_path: &str,
+) -> Result<Option<PathBuf>, String> {
+    match std::fs::symlink_metadata(requested_path) {
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound
+                && requested_path == configured_path =>
+        {
+            return Ok(None);
+        }
+        Err(error) => {
+            return Err(format!(
+                "Could not inspect the selected Open WebUI environment {}: {error}",
+                Path::new(requested_path).display()
+            ));
+        }
+        Ok(_) => {}
+    }
+
+    let selected = removable_venv_path(Path::new(requested_path))?;
+    let configured = removable_venv_path(Path::new(configured_path))?;
+    if selected != configured {
+        return Err(
+            "The requested folder is not the currently selected Open WebUI environment.".into(),
+        );
+    }
+    Ok(Some(selected))
+}
+
 fn removable_venv_path(path: &Path) -> Result<PathBuf, String> {
     let metadata = std::fs::symlink_metadata(path).map_err(|error| {
         format!(
@@ -492,26 +564,21 @@ pub async fn remove_open_webui_venv(
     }
 
     let result = (|| {
-        let selected = removable_venv_path(Path::new(&venv_path))?;
         let configured = state
             .open_webui_venv_path
             .lock()
             .map_err(|error| error.to_string())?
             .clone()
             .ok_or_else(|| "No Open WebUI environment is currently selected.".to_string())?;
-        let configured = removable_venv_path(Path::new(&configured))?;
-        if selected != configured {
-            return Err(
-                "The requested folder is not the currently selected Open WebUI environment.".into(),
-            );
+        let selected = selected_venv_for_removal(&venv_path, &configured)?;
+        if let Some(selected) = selected.as_ref() {
+            std::fs::remove_dir_all(selected).map_err(|error| {
+                format!(
+                    "Could not remove the selected Open WebUI environment {}: {error}",
+                    selected.display()
+                )
+            })?;
         }
-
-        std::fs::remove_dir_all(&selected).map_err(|error| {
-            format!(
-                "Could not remove the selected Open WebUI environment {}: {error}",
-                selected.display()
-            )
-        })?;
         *state
             .open_webui_venv_path
             .lock()
@@ -522,14 +589,19 @@ pub async fn remove_open_webui_venv(
             .err()
             .map(|error| {
                 format!(
-                    " The environment was removed, but saving the updated settings failed: {error}"
+                    " The saved selection was cleared, but saving the updated settings failed: {error}"
                 )
             })
             .unwrap_or_default();
-        Ok(format!(
-            "Removed Open WebUI environment at {}.{persistence_error}",
-            selected.display()
-        ))
+        match selected {
+            Some(path) => Ok(format!(
+                "Removed Open WebUI environment at {}.{persistence_error}",
+                path.display()
+            )),
+            None => Ok(format!(
+                "The selected Open WebUI environment was already missing; cleared its saved selection.{persistence_error}"
+            )),
+        }
     })();
 
     match state.open_webui_updating.lock() {
@@ -1035,9 +1107,10 @@ pub fn clear_open_webui_log(state: State<'_, AppState>) {
 #[cfg(test)]
 mod tests {
     use super::{
-        compatible_venv_python, is_supported_open_webui_python, llama_cpp_directory,
-        managed_venv_path, open_webui_venv_path, parse_open_webui_version_from_pip_show,
-        parse_python_version, python_start_error, removable_venv_path, SETUP_PYTHON_VERSION,
+        compatible_venv_python, ensure_venv_pip_with, is_supported_open_webui_python,
+        llama_cpp_directory, managed_venv_path, open_webui_venv_path,
+        parse_open_webui_version_from_pip_show, parse_python_version, python_start_error,
+        removable_venv_path, selected_venv_for_removal, SETUP_PYTHON_VERSION,
     };
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1062,6 +1135,51 @@ mod tests {
         assert!(!is_supported_open_webui_python((3, 13, 0)));
         assert!(compatible_venv_python((3, 12, 1)));
         assert!(!compatible_venv_python((3, 11, 9)));
+    }
+
+    #[test]
+    fn setup_restores_missing_pip_without_replacing_existing_venv() {
+        let root = test_dir();
+        let venv = root.join(".venv");
+        std::fs::create_dir(&venv).unwrap();
+        std::fs::write(venv.join("keep.txt"), "preserve me").unwrap();
+        let mut checks = [false, true].into_iter();
+        let mut restore_called = false;
+
+        ensure_venv_pip_with(
+            &venv,
+            || Ok(checks.next().unwrap_or(false)),
+            || {
+                restore_called = true;
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert!(restore_called);
+        assert_eq!(
+            std::fs::read_to_string(venv.join("keep.txt")).unwrap(),
+            "preserve me"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_pip_reports_repair_failure_without_deleting_venv() {
+        let root = test_dir();
+        let venv = root.join(".venv");
+        std::fs::create_dir(&venv).unwrap();
+        std::fs::write(venv.join("keep.txt"), "preserve me").unwrap();
+
+        let error = ensure_venv_pip_with(&venv, || Ok(false), || Err("ensurepip failed".into()))
+            .unwrap_err();
+
+        assert!(error.contains("existing environment was not deleted"));
+        assert_eq!(
+            std::fs::read_to_string(venv.join("keep.txt")).unwrap(),
+            "preserve me"
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -1114,6 +1232,35 @@ mod tests {
             root.canonicalize().unwrap().join(".venv")
         );
         assert!(open_webui_venv_path(exe.to_str().unwrap(), Some("missing-folder")).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_selected_venv_can_be_cleared_without_inspecting_a_missing_path() {
+        let root = test_dir();
+        let missing = root.join("old-open-webui-venv");
+        let missing = missing.to_string_lossy().to_string();
+
+        assert!(selected_venv_for_removal(&missing, &missing)
+            .unwrap()
+            .is_none());
+        assert!(selected_venv_for_removal(&missing, "some-other-venv").is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn existing_venv_removal_still_requires_the_selected_valid_venv() {
+        let root = test_dir();
+        let venv = root.join(".venv");
+        std::fs::create_dir(&venv).unwrap();
+        std::fs::write(venv.join("pyvenv.cfg"), "home = python").unwrap();
+        let venv_string = venv.to_string_lossy().to_string();
+
+        assert_eq!(
+            selected_venv_for_removal(&venv_string, &venv_string).unwrap(),
+            Some(venv.canonicalize().unwrap())
+        );
+        assert!(selected_venv_for_removal(&venv_string, "different-venv").is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
 

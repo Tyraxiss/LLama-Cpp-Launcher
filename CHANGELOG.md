@@ -18,7 +18,7 @@ All notable changes to LLama C++ Launcher are documented here.
 
 ### Fixed and improved
 
-- Make Open WebUI setup create/use Python 3.12 only, reuse a compatible existing `.venv`, and leave incompatible existing folders untouched rather than overwriting them.
+- Make Open WebUI setup create/use Python 3.12 only, reuse a compatible existing `.venv`, restore missing `pip` with `ensurepip`, and leave incompatible existing folders untouched rather than overwriting them.
 - Add a recoverable per-user Python 3.12 runtime installation path on Windows without replacing other Python installations.
 - Validate llama-server addresses, ports, context/batch and sampling ranges, GPU selection, and tensor splits in Rust at the IPC boundary.
 - Launch Open WebUI through the selected venv's own interpreter and resolve its installed entry point instead of relying on a possibly stale Windows console launcher.
