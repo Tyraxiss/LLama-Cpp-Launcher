@@ -18,7 +18,7 @@ use crate::state::AppState;
 
 const LLAMA_REPO: &str = "ggml-org/llama.cpp";
 const BUILD_MARKER: &str = ".llama-launcher-build.json";
-const USER_AGENT: &str = "LLama C++ Launcher/1.2.0";
+const USER_AGENT: &str = "LLama C++ Launcher/1.2.1";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct BuildMarker {

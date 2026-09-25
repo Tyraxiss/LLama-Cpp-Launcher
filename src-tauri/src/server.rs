@@ -7,6 +7,13 @@ use crate::bindings::ServerStartConfig;
 use crate::resources::set_server_pid;
 use crate::state::{AppState, MAX_LOG_LINES};
 
+fn append_memory_load_args(args: &mut Vec<String>, no_mmap: bool) {
+    if no_mmap {
+        args.push("--load-mode".into());
+        args.push("none".into());
+    }
+}
+
 fn validate_start_config(config: &ServerStartConfig) -> Result<(), String> {
     let host = config.host.trim();
     if host != config.host {
@@ -193,9 +200,7 @@ pub async fn start_llama_server(
             args.push(split.trim().to_string());
         }
     }
-    if config.no_mmap {
-        args.push("--no-mmap".into());
-    }
+    append_memory_load_args(&mut args, config.no_mmap);
     if config.no_webui {
         args.push("--no-webui".into());
     }
@@ -261,7 +266,7 @@ pub async fn start_llama_server(
 
 #[cfg(test)]
 mod validation_tests {
-    use super::validate_start_config;
+    use super::{append_memory_load_args, validate_start_config};
     use crate::bindings::ServerStartConfig;
 
     fn valid_config() -> ServerStartConfig {
@@ -287,6 +292,17 @@ mod validation_tests {
             no_mmap: false,
             no_webui: false,
         }
+    }
+
+    #[test]
+    fn uses_current_load_mode_flag_when_memory_mapping_is_disabled() {
+        let mut args = Vec::new();
+        append_memory_load_args(&mut args, true);
+        assert_eq!(args, ["--load-mode", "none"]);
+
+        let mut args = Vec::new();
+        append_memory_load_args(&mut args, false);
+        assert!(args.is_empty());
     }
 
     #[test]

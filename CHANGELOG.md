@@ -4,6 +4,12 @@ All notable changes to LLama C++ Launcher are documented here.
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-09-24
+
+### Fixed
+
+- Use llama.cpp's current `--load-mode none` argument when memory mapping is disabled, replacing the removed `--no-mmap` flag.
+
 ## [1.2.0] - 2026-09-24
 
 ### Added

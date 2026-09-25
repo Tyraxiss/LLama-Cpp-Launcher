@@ -2,7 +2,11 @@
 
 A Windows-focused desktop app for running local [llama.cpp](https://github.com/ggerganov/llama.cpp) models, downloading GGUF files from Hugging Face, and optionally using [Open WebUI](https://github.com/open-webui/open-webui) as the chat front end.
 
-Built with **Tauri 2**, **React**, and **Rust**. Current version: **v1.2.0**.
+Built with **Tauri 2**, **React**, and **Rust**. Current version: **v1.2.1**.
+
+## What's new in v1.2.1
+
+- Fix the No Memory Map server option to use llama.cpp's current `--load-mode none` argument instead of the removed `--no-mmap` flag.
 
 ## What's new in v1.2.0
 
@@ -135,11 +139,11 @@ CI on `main` runs TypeScript, ESLint, Prettier, `cargo fmt`, `cargo clippy`, Rus
 
 ## Releases
 
-Prebuilt Windows installers are published on [GitHub Releases](https://github.com/Tyraxiss/LLama-Cpp-Launcher/releases) when a version tag is pushed. Tags may be short (`v1.2`, which maps to `1.2.0`) or full semantic versions (for example, `v1.2.0`). The workflow builds and publishes the NSIS `.exe` installer only; it does not build MSI packages.
+Prebuilt Windows installers are published on [GitHub Releases](https://github.com/Tyraxiss/LLama-Cpp-Launcher/releases) when a version tag is pushed. Tags may be short (`v1.2`, which maps to `1.2.0`) or full semantic versions (for example, `v1.2.1`). The workflow builds and publishes the NSIS `.exe` installer only; it does not build MSI packages.
 
 ```powershell
-git tag v1.2.0
-git push origin v1.2.0
+git tag v1.2.1
+git push origin v1.2.1
 ```
 
 See [CHANGELOG.md](CHANGELOG.md) for version history.

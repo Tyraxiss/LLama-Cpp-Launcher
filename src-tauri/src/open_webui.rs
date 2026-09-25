@@ -991,7 +991,7 @@ pub async fn start_open_webui(
         .env("OPENAI_API_KEYS", "sk-local")
         .env("ENABLE_OLLAMA_API", "False")
         .env("CORS_ALLOW_ORIGIN", "*")
-        .env("USER_AGENT", "LLama C++ Launcher/1.2.0")
+        .env("USER_AGENT", "LLama C++ Launcher/1.2.1")
         .env("PYTHONUTF8", "1")
         .env("PYTHONIOENCODING", "utf-8")
         .spawn()
