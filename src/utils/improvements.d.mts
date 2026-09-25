@@ -8,8 +8,13 @@ import type {
 
 export function parseIpv4Address(value: unknown): number[] | null;
 export function isLocalBindAddress(value: unknown): boolean;
-export function normalizeServerSettings(config?: Partial<AppConfig>): ServerSettings;
-export function suggestMmprojPath(modelPath: string, mmprojs: ModelInfo[]): string | null;
+export function normalizeServerSettings(
+  config?: Partial<AppConfig>,
+): ServerSettings;
+export function suggestMmprojPath(
+  modelPath: string,
+  mmprojs: ModelInfo[],
+): string | null;
 export function buildRedactedDiagnostics(input: {
   appVersion: string;
   llamaTag?: string | null;
@@ -35,13 +40,19 @@ export function estimateModelMemory(input: {
   gpuLayers: number;
   mainGpu?: number | null;
   stats: ResourceStats | null;
-}): { status: "unknown" | "warning" | "ok"; message: string; details: string[] };
+}): {
+  status: "unknown" | "warning" | "ok";
+  message: string;
+  details: string[];
+};
 export function serializeDownloadQueue(queue: HfDownloadQueueItem[]): string;
 export function deserializeDownloadQueue(value: string | null): HfDownloadQueueItem[];
 export function retryQueueItem(
   item: HfDownloadQueueItem,
   token: string,
 ): (HfDownloadQueueItem & { needsToken?: true }) | null;
-export function cancelQueueItem<T extends Partial<HfDownloadQueueItem>>(item: T): T;
+export function cancelQueueItem<T extends Partial<HfDownloadQueueItem>>(
+  item: T,
+): T;
 export function redactDiagnosticText(value: unknown): string;
 export function redactDiagnosticData(value: unknown): unknown;
